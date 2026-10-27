@@ -9,6 +9,8 @@ const PANE = {
   props: { title: 'council', isFocused: false, bodyColumns: 120, placement: 'dock', scroll: { offset: 0, bodyRows: 40 }, view: {} },
 } as const
 
+const HOW = { origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } } as const
+
 const usage = { input_tokens: 100, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }
 
 // Every seat answers `vote`, except the roles in `others`.
@@ -30,7 +32,7 @@ test('a council of 3 votes, and its verdict is drawn and stored', async ($, on) 
   on('session.repo', () => ({ value: null }))
   seats(on, 'B', { reviewer: 'A' })
 
-  const ran = await $.command.run({ command: 'council', args: '3 which store? A) sqlite B) drizzle' })
+  const ran = await $.command.run({ command: 'council', args: '3 which store? A) sqlite B) drizzle', ...HOW })
   expect(ran.text).toContain('convened')
   await clock.advance(1)
   await clock.settle()
@@ -48,7 +50,7 @@ test('a security veto blocks whatever the count', async ($, on) => {
   on('tool.call', { tool: 'AskUserQuestion' }, (_, e) => ({ result: { questions: e.questions, answers: { [e.questions[0]?.question ?? '']: 'Start' } } }))
   seats(on, 'A', { security: 'veto' })
 
-  await $.command.run({ command: 'council', args: '6 drop the users table? A) yes B) no' })
+  await $.command.run({ command: 'council', args: '6 drop the users table? A) yes B) no', ...HOW })
   await clock.advance(1)
   await clock.settle()
 

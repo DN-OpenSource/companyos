@@ -4,6 +4,7 @@ import { readCouncil } from './council'
 import { readEvents } from './events'
 import { readPending } from './guard'
 import { STATS } from './stats'
+import { TICKETS, tickets } from './tickets'
 import { clip, ctxColor, usd } from './util'
 
 const GLYPH: Record<string, string> = {
@@ -21,15 +22,17 @@ export function band(on: On) {
     if (e.props.hasSurvey || e.props.maxRows < 1) return next(e)
 
     const { Box, Button, Text } = $.ui.resolve(e)
-    const [list, usage, agents, waiting, council] = await Promise.all([
+    const [list, usage, agents, waiting, council, wall] = await Promise.all([
       readEvents($),
       $.session.usage(),
       $.agent.list(),
       readPending($),
       readCouncil($),
+      tickets($),
     ])
     const votes = council?.seats.filter(s => s.vote !== undefined).length ?? 0
     const sitting = council !== null && council.status !== 'verdict' && council.status !== 'failed'
+    const mine = wall.filter(t => t.status === 'In Progress').length
     const pct = Math.round(usage.context.percent ?? 0)
     const last = [...list].reverse().find(x => x.kind === 'tool_call' || x.kind === 'prompt')
     const live = agents.filter(a => a.status !== 'completed' && a.status !== 'killed').slice(0, 8)
@@ -61,7 +64,10 @@ export function band(on: On) {
             <Button key="stats" plain onPress={() => $.ui.open({ id: STATS, title: 'CompanyOS · context, cost, skills' }).then(() => {})}>
               stats
             </Button>
-            <Text dimColor> · {list.filter(x => x.kind === 'tool_call' && !x.isDone).length} tools running</Text>
+            <Text dimColor> · {list.filter(x => x.kind === 'tool_call' && !x.isDone).length} tools running · </Text>
+            <Button key="tickets" plain onPress={() => $.ui.open({ id: TICKETS, title: 'CompanyOS · ticket wall' }).then(() => {})}>
+              {mine} tickets in progress
+            </Button>
           </Box>
         )}
       </Box>

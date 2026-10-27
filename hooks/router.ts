@@ -61,7 +61,8 @@ export function router(on: On) {
     }
     const command = TO_COMMAND[lower]
     if (command !== undefined) {
-      const ran = await $.command.run({ command, args })
+      // `@jira start X` keeps its tracker: `/ticket jira start X`.
+      const ran = await $.command.run({ command, args: command === 'ticket' && lower !== '@ticket' ? `${lower.slice(1)} ${args}` : args })
       if (ran.text) $.ui.log(ran.text)
       return { drop: `Ran /${command}.` }
     }

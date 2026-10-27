@@ -26,6 +26,18 @@ export type MemoryEntry = {
   expires?: number
 }
 
+// A ticket on the wall, kept in $.store under tickets/<repo root>.
+export type Ticket = {
+  key: string
+  title: string
+  source: string
+  status: 'To Do' | 'In Progress' | 'In Review' | 'Blocked' | 'Done'
+  agent?: string
+  requirement?: string
+  note?: string
+  ts: number
+}
+
 export type Seat = {
   role: string
   vote?: string // an option letter, 'abstain' or 'veto'

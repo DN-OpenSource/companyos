@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
 const BAND = {
   plugin: 'companyos',
@@ -8,6 +8,8 @@ const BAND = {
 } as const
 
 test('the band shows context, cost and live agents', async ($, on) => {
+  mock.store(on)
+  on('session.repo', () => ({ value: null }))
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000, percent: 72 }, rateLimits: [], cost: { usd: 4.31 } } }))
   on('agent.list', () => ({ value: [{ id: 'a1', description: 'tests', type: 'Explore', status: 'running' }] }))
 
