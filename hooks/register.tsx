@@ -1,6 +1,7 @@
 import type { Register } from 'claude-code'
 
 import { accounts } from './accounts'
+import { anthropic } from './anthropic'
 import { band } from './band'
 import { councils } from './council'
 import { diffs } from './diff'
@@ -49,6 +50,11 @@ const COMMANDS = [
   { name: 'replay', description: 'CompanyOS: save this session as a replay file in .companyos/' },
   { name: 'handover', description: 'CompanyOS: write a handover note for a colleague to continue this session' },
   {
+    name: 'anthropic',
+    description: 'CompanyOS: Claude account, rate-limit forecast, provider profiles and per-agent model routes',
+    argumentHint: '[add <name> <provider> [k=v…] | use <name> | route <agent type|*> <model> | …]',
+  },
+  {
     name: 'account',
     description: 'CompanyOS: show, bind or switch the GitHub account for this repo',
     argumentHint: '[bind <login> [email] | unbind | switch <login>]',
@@ -90,6 +96,7 @@ export const register: Register = (on, options) => {
 
   feed(on, Number(options.costCapUsd ?? 0))
   accounts(on)
+  anthropic(on)
   guard(on, options)
   stats(on)
   band(on)

@@ -1,6 +1,7 @@
 import type { On } from 'claude-code'
 
 import type { CosEvent } from '../types'
+import { forecast } from './anthropic'
 import { readEvents } from './events'
 import { ctxColor, meter, skillOf, tokens, usd } from './util'
 
@@ -30,7 +31,7 @@ export function stats(on: On) {
 
   on('ui.render', { component: 'Pane', requestId: STATS }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
-    const [list, usage, agents] = await Promise.all([readEvents($), $.session.usage(), $.agent.list()])
+    const [list, usage, agents, ahead] = await Promise.all([readEvents($), $.session.usage(), $.agent.list(), forecast($)])
     const pct = usage.context.percent ?? 0
     const turns = list.filter(x => x.kind === 'turn' && x.agent === 'lead')
     const perTurn = turns.length > 1 ? pct / turns.length : 0
@@ -57,6 +58,9 @@ export function stats(on: On) {
           <Text color={ctxColor(r.percentUsed)}>
             {r.kind.padEnd(10)} {meter(r.percentUsed)} {Math.round(r.percentUsed)}%{r.resetsAt ? ` · resets ${r.resetsAt}` : ''}
           </Text>
+        ))}
+        {ahead.map(line => (
+          <Text dimColor>{line}</Text>
         ))}
         <Text> </Text>
         <Text bold>Agents</Text>

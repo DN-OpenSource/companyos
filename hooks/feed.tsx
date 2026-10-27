@@ -1,6 +1,7 @@
 import type { On } from 'claude-code'
 
 import { statusLine } from './accounts'
+import { routeFor, sampleLimits } from './anthropic'
 import { flush, log, mark, readEvents } from './events'
 import { recordEdit } from './diff'
 import { isPlain, plain } from './mode'
@@ -31,6 +32,13 @@ export function feed(on: On, capUsd: number) {
       }
     }
     if (ran === undefined) ran = await next(e)
+    // Skill loads also come as Skill tool calls: count one here when skill.prompt never reached the mod.
+    if (String(e.tool) === 'Skill' && ran.deny === undefined) {
+      const skill = String((e as { skill?: unknown }).skill ?? '')
+      const now = await $.clock.now()
+      const seen = (await readEvents($)).some(x => x.kind === 'skill_load' && skillOf(x.detail) === skill && now - x.ts < 60_000)
+      if (skill && !seen) await log($, 'skill_load', e.agentId, `${skill} (Skill tool)`, { tokensIn: Math.round((ran.text?.length ?? 0) / 4) })
+    }
     await mark($, id, {
       isDone: true,
       isError: ran.deny !== undefined || ran.isError === true,
@@ -48,7 +56,9 @@ export function feed(on: On, capUsd: number) {
   })
 
   on('agent.spawn', async ($, e, next) => {
-    const ran = await next(e)
+    // An agent type the person routed (/anthropic route) runs on that model.
+    const routed = e.subagentType === 'fork' ? undefined : await routeFor($, e.subagentType)
+    const ran = await next(routed ? { ...e, model: routed } : e)
     const child = ran.agentId ?? e.subagentType
     await log($, 'delegation', undefined, `${e.subagentType} → ${child}: ${e.description}`, {
       tokensIn: Math.round(e.prompt.length / 4),
@@ -68,6 +78,7 @@ export function feed(on: On, capUsd: number) {
 
   on('turn.complete', async ($, e, next) => {
     const usage = await $.session.usage()
+    if (e.agentId === undefined) await sampleLimits($, usage)
     await log($, 'turn', e.agentId, `${e.reason} in ${Math.round(e.durationMs / 1000)}s`, {
       isDone: true,
       isError: e.reason === 'error',

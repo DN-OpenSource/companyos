@@ -17,6 +17,7 @@ Requires Claude Code 2.1.287 or later (the mods API). Built and tested on 2.1.31
 | `/mem [remember [--global] <text> \| forget <id> \| pin <id> \| prune \| export]` | `@mem` | Long-term memory, injected into each conversation's first message |
 | `/graph [agents\|skills\|files\|memory\|decisions\|cost]` | | The relation as a Mermaid graph, copyable |
 | `/ticket [jira\|notion\|linear] start\|move\|done\|block\|add <KEY> …`, `/ticket sync`, `/ticket wall` | `@jira`, `@notion`, `@linear` | Work tickets through your connected tracker; the wall stays in sync |
+| `/anthropic [add <name> <provider> [k=v…] \| use <name> \| route <agent type\|*> <model> \| unroute …]` | | Signed-in Claude account, rate-limit forecast, provider profiles (subscription, API, Bedrock, Vertex, gateway) applied to the next session, and per-agent model routes |
 | `/account [bind <login> [email] \| unbind \| switch <login>]` | `@gh` | GitHub identity bound per repo |
 | `/diff [revert <id> [hunk]]` | | Every edit this session by agent, hunk by hunk, each with its own revert that tells the agent why |
 | `/checkpoint [label] \| list \| restore <id>` | | Snapshot the workspace with `git stash create` (nothing in the tree moves); restore after a yes |
@@ -88,13 +89,12 @@ tsc -p ./companyos
 
 One file per feature under `hooks/`, wired in `hooks/register.tsx`; the `$.state` contract is `types/index.d.ts`.
 
-## Not in the mod
+## Limits
 
-- Skill tracking needs `skill.prompt` to reach the mod. Where an organization plugin above it (for example
-  `cc-plugin-sec-default`) passes that event on past the person's mods, the library, per-skill stats, skill graph
-  and inherited-skill tracing stay empty.
-
-These can't be done from inside a mod:
-
-- Switching Anthropic accounts. No mods API does it; `/account` shows which account is signed in.
-- Tracker calls through `$.mcp`. Tickets go through Claude's own connected tools instead (see How tickets sync).
+- **Switching the signed-in account mid-session.** No mods API swaps a running session's credentials. `/anthropic use`
+  writes a profile into `.claude/settings.local.json` for the next session here, `/login` changes the claude.ai
+  account, and `/anthropic route` moves chosen subagents to another model now.
+- **Skill detail under organization plugins.** Where a plugin above the mod (for example `cc-plugin-sec-default`)
+  passes `skill.prompt` on past it, skill loads are counted from `Skill` tool calls instead: name, agent and
+  token cost are kept, the skill's source and frontmatter are not.
+- **Tracker calls.** Tickets go through Claude's own connected tools, not `$.mcp` (see How tickets sync).

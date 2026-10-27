@@ -21,7 +21,7 @@ export const tokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : 
 // The one argument worth a glance, whatever the tool.
 export function argOf(e: object): string {
   const a = e as Record<string, unknown>
-  for (const k of ['command', 'file_path', 'pattern', 'url', 'description', 'prompt', 'query']) {
+  for (const k of ['command', 'file_path', 'skill', 'pattern', 'url', 'description', 'prompt', 'query']) {
     if (typeof a[k] === 'string') return a[k] as string
   }
   return ''
