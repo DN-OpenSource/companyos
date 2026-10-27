@@ -1,0 +1,7 @@
+{
+  "name": "companyos",
+  "version": "0.1.0",
+  "description": "See every agent, tool call, skill load, compaction and cost of a session in one event feed.",
+  "author": { "name": "Dhiraj Nikam" },
+  "types": "./types/index.d.ts"
+}
