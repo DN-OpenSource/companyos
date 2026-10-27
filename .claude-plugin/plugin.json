@@ -2,6 +2,22 @@
   "name": "companyos",
   "version": "0.1.0",
   "description": "See every agent, tool call, skill load, compaction and cost of a session in one event feed.",
-  "author": { "name": "Dhiraj Nikam" },
-  "types": "./types/index.d.ts"
+  "author": {
+    "name": "Dhiraj Nikam"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "protectedPaths": {
+      "type": "string",
+      "title": "Protected paths",
+      "description": "Comma-separated path fragments no agent edits without your yes (e.g. .env,migrations/,infra/)",
+      "default": ".env"
+    },
+    "costCapUsd": {
+      "type": "number",
+      "title": "Session cost cap (USD)",
+      "description": "Warn once a session costs more than this; 0 turns it off",
+      "default": 0
+    }
+  }
 }

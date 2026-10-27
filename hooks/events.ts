@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { CosEvent, EventKind } from '../types'
+import { clip } from './util'
 
 const MAX = 500
 // Change the tag when CosEvent's fields change.
@@ -10,7 +11,6 @@ const events = atom({ plugin: 'companyos', key: 'events' } as const, [], {
   shape: 'events-1',
 })
 
-export const clip = (s: string, n = 160) => (s.length > n ? s.slice(0, n - 1) + '…' : s)
 
 export async function log(
   $: EngineInterface,

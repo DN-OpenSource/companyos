@@ -1,21 +1,13 @@
 import type { On } from 'claude-code'
 
-import { clip, flush, log, mark, readEvents } from './events'
 import { statusLine } from './accounts'
+import { flush, log, mark, readEvents } from './events'
+import { argOf, clip, skillOf, time, usd } from './util'
 
-const PANE = 'companyos-feed'
-const time = (ts: number) => new Date(ts).toISOString().slice(11, 19)
+export const FEED = 'companyos-feed'
+const PANE = FEED
 
-// The one argument worth a glance, whatever the tool.
-function argOf(e: object): string {
-  const a = e as Record<string, unknown>
-  for (const k of ['command', 'file_path', 'pattern', 'url', 'description', 'prompt', 'query']) {
-    if (typeof a[k] === 'string') return a[k] as string
-  }
-  return ''
-}
-
-export function feed(on: On) {
+export function feed(on: On, capUsd: number) {
   on('command.run', { command: 'events' }, async $ => {
     const opened = await $.ui.open({ id: PANE, title: 'CompanyOS · events' })
     return { text: opened.isPlaced ? 'Event feed opened.' : `Event feed waits: ${opened.reason}` }
@@ -29,7 +21,11 @@ export function feed(on: On) {
   on('tool.call', async ($, e, next) => {
     const id = await log($, 'tool_call', e.agentId, `${String(e.tool)} ${argOf(e)}`.trim())
     const ran = await next(e)
-    await mark($, id, { isDone: true, isError: ran.deny !== undefined || ran.isError === true })
+    await mark($, id, {
+      isDone: true,
+      isError: ran.deny !== undefined || ran.isError === true,
+      tokensOut: Math.round((ran.text?.length ?? 0) / 4),
+    })
     return ran
   })
 
@@ -42,8 +38,17 @@ export function feed(on: On) {
   })
 
   on('agent.spawn', async ($, e, next) => {
-    await log($, 'delegation', undefined, `${e.subagentType}: ${e.description}`)
-    return next(e)
+    const ran = await next(e)
+    const child = ran.agentId ?? e.subagentType
+    await log($, 'delegation', undefined, `${e.subagentType} → ${child}: ${e.description}`, {
+      tokensIn: Math.round(e.prompt.length / 4),
+    })
+    // Multi-agent skill tracing: a skill named in the delegated prompt rides along to the child.
+    const skills = new Set((await readEvents($)).filter(x => x.kind === 'skill_load').map(x => skillOf(x.detail)))
+    for (const skill of skills) {
+      if (e.prompt.includes(skill)) await log($, 'skill_load', child, `${skill} (inherited from lead)`)
+    }
+    return ran
   })
 
   on('session.compact', async ($, e, next) => {
@@ -62,8 +67,9 @@ export function feed(on: On) {
     })
     if (e.agentId === undefined) {
       const pct = usage.context.percent
-      const ctx = `ctx ${pct === undefined ? '?' : Math.round(pct)}% · $${(usage.cost?.usd ?? 0).toFixed(2)}`
+      const ctx = `ctx ${pct === undefined ? '?' : Math.round(pct)}% · ${usd(usage.cost?.usd)}`
       $.ui.status(`CompanyOS · ${ctx}${await statusLine($)}`)
+      if (capUsd > 0 && (usage.cost?.usd ?? 0) > capUsd) $.ui.toast(`CompanyOS: session cost ${usd(usage.cost?.usd)} is over the ${usd(capUsd)} cap`)
       await flush($)
     }
     return next(e)

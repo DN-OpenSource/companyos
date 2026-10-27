@@ -1,18 +1,6 @@
-import type { On } from 'claude-code'
-import { expect, mock, test } from 'claude-code/testing'
+import { expect, test } from 'claude-code/testing'
 
-const ROOT = '/repo'
-
-function world(on: On,have: { email: string; login: string }) {
-  mock.store(on, { [`accounts/${ROOT}`]: { login: 'work', email: 'me@work.co' } })
-  on('clock.now', () => ({ value: 1_000 }))
-  on('session.repo', () => ({ value: { root: ROOT, remote: null, internal: false, name: 'repo' } }))
-  on('process.run', (_, e) => {
-    const out = e.argv[0] === 'gh' ? have.login : have.email
-    return { value: { exitCode: 0, stdout: out + '\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
-  })
-  on('tool.call', () => ({ result: {} }))
-}
+import { world } from './world'
 
 test('a commit under the wrong email is blocked', async ($, on) => {
   world(on, { email: 'me@home.co', login: 'work' })

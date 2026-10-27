@@ -6,6 +6,10 @@ export type EventKind =
   | 'compaction'
   | 'turn'
   | 'identity'
+  | 'guard'
+  | 'memory'
+  | 'vote'
+  | 'ticket_update'
 
 // The GitHub account a repo is bound to, kept in $.store under accounts/<repo root>.
 export type Binding = { login: string; email?: string }
@@ -26,6 +30,9 @@ export type CosEvent = {
 
 declare module 'claude-code' {
   interface PluginState {
-    companyos: { events: Shaped<CosEvent[]> }
+    companyos: {
+      events: Shaped<CosEvent[]>
+      pending: number
+    }
   }
 }

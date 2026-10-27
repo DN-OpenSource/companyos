@@ -9,7 +9,7 @@ const TTL = 60_000
 
 const keyOf = (root: string) => `accounts/${root}`
 
-async function run($: EngineInterface, argv: string[], cwd?: string) {
+export async function run($: EngineInterface, argv: string[], cwd?: string) {
   try {
     const r = await $.process.run(argv, { cwd, timeoutMs: 8_000 })
     return r.exitCode === 0 ? r.stdout.trim() : undefined
@@ -91,33 +91,27 @@ export function accounts(on: On) {
     }
     return { text: 'Usage: /account [bind <login> [email] | unbind | switch <login>]' }
   })
-
-  // Mismatch guard: the wrong identity never commits or pushes in a bound repo.
-  // ponytail: checks the session's repo, not a `cd elsewhere &&` inside the command
-  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    const isCommit = COMMIT.test(e.command)
-    const isPush = PUSH.test(e.command)
-    if (!isCommit && !isPush) return next(e)
-
-    const b = await bound($)
-    if (!b?.binding) return next(e)
-    const { login, email } = b.binding
-
-    let why: string | undefined
-    if (isCommit && email) {
-      const have = await run($, ['git', 'config', 'user.email'], b.root)
-      if (have !== email) why = `git email is ${have ?? 'unset'}, this repo is bound to ${email}. Run: git config user.email ${email}`
-    }
-    if (why === undefined && isPush) {
-      const have = await ghLogin($)
-      if (have !== login) why = `gh acts as ${have ?? 'nobody'}, this repo is bound to ${login}. Run: /account switch ${login}`
-    }
-    if (why === undefined) return next(e)
-
-    await log($, 'identity', e.agentId, `blocked: ${why}`, { isError: true, isDone: true })
-    $.ui.toast(`CompanyOS blocked a ${isPush ? 'push' : 'commit'}: wrong account`)
-    return { deny: `CompanyOS: ${why}` }
-  }).catch(($, e, next) =>
-    next.called ? next(e) : { deny: 'CompanyOS: the account guard failed; check /account.' },
-  )
 }
+
+// Why this Bash command would act under the wrong identity, or undefined.
+// ponytail: checks the session's repo, not a `cd elsewhere &&` inside the command
+export async function identityProblem($: EngineInterface, command: string): Promise<string | undefined> {
+  const isCommit = COMMIT.test(command)
+  const isPush = PUSH.test(command)
+  if (!isCommit && !isPush) return undefined
+
+  const b = await bound($)
+  if (!b?.binding) return undefined
+  const { login, email } = b.binding
+
+  if (isCommit && email) {
+    const have = await run($, ['git', 'config', 'user.email'], b.root)
+    if (have !== email) return `git email is ${have ?? 'unset'}, this repo is bound to ${email}. Run: git config user.email ${email}`
+  }
+  if (isPush) {
+    const have = await ghLogin($)
+    if (have !== login) return `gh acts as ${have ?? 'nobody'}, this repo is bound to ${login}. Run: /account switch ${login}`
+  }
+  return undefined
+}
+
