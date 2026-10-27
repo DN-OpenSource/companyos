@@ -8,6 +8,7 @@ import { graph } from './graph'
 import { guard } from './guard'
 import { memory } from './memory'
 import { modes } from './mode'
+import { office } from './office'
 import { reports } from './reports'
 import { router } from './router'
 import { stats } from './stats'
@@ -39,6 +40,7 @@ const COMMANDS = [
   { name: 'mode', description: 'CompanyOS: switch between technical and plain-language rendering', argumentHint: '[plain|technical]' },
   { name: 'daily', description: "CompanyOS: write today's plain-language page and standup to .companyos/" },
   { name: 'report', description: 'CompanyOS: weekly report, or export events as CSV or JSON', argumentHint: '[week|csv|json]' },
+  { name: 'office', description: 'CompanyOS: open the pixel office', argumentHint: '[theme loft|tower|cubicles|garage|space]' },
   {
     name: 'account',
     description: 'CompanyOS: show, bind or switch the GitHub account for this repo',
@@ -82,4 +84,5 @@ export const register: Register = (on, options) => {
   ticketing(on)
   modes(on)
   reports(on)
+  office(on, String(options.theme ?? 'loft'), options.lowPower === true)
 }

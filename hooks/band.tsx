@@ -75,4 +75,13 @@ export function band(on: On) {
       </Box>
     )
   })
+
+  // Spinner suffix: "· 3 tools · 46% context" while Claude works.
+  on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
+    const [list, usage] = await Promise.all([readEvents($), $.session.usage()])
+    const since = [...list].reverse().findIndex(x => x.kind === 'prompt')
+    const tools = (since < 0 ? list : list.slice(list.length - since)).filter(x => x.kind === 'tool_call').length
+    const pct = Math.round(usage.context.percent ?? 0)
+    return next({ ...e, props: { ...e.props, suffix: `${e.props.suffix} · ${tools} tools · ${pct}% context` } })
+  })
 }

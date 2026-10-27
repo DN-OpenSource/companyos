@@ -89,6 +89,8 @@ declare module 'claude-code' {
       graph: string
       council: Council | null
       mode: string
+      theme: string
+      tick: number
     }
   }
 }
