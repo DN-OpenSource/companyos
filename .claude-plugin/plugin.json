@@ -1,0 +1,48 @@
+{
+  "name": "companyos",
+  "version": "0.1.0",
+  "description": "Your Claude Code session as a company: event feed, band above the prompt, councils, memory, tickets, accounts and a pixel office.",
+  "author": {
+    "name": "Dhiraj Nikam"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "protectedPaths": {
+      "type": "string",
+      "title": "Protected paths",
+      "description": "Comma-separated path fragments no agent edits without your yes (e.g. .env,migrations/,infra/)",
+      "default": ".env"
+    },
+    "costCapUsd": {
+      "type": "number",
+      "title": "Session cost cap (USD)",
+      "description": "Warn once a session costs more than this; 0 turns it off",
+      "default": 0
+    },
+    "theme": {
+      "type": "string",
+      "title": "Office theme",
+      "description": "How the pixel office looks",
+      "options": [
+        "loft",
+        "tower",
+        "cubicles",
+        "garage",
+        "space"
+      ],
+      "default": "loft"
+    },
+    "lowPower": {
+      "type": "boolean",
+      "title": "Low-power mode",
+      "description": "No office animation; the band and panes still update",
+      "default": false
+    },
+    "webhookUrl": {
+      "type": "string",
+      "title": "Webhook URL",
+      "description": "POST every event as JSON to this http(s) address; empty for none",
+      "default": ""
+    }
+  }
+}
