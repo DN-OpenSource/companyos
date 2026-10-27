@@ -15,7 +15,7 @@ test('the hub opens on a tab, and its tab buttons switch the body', async ($, on
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.repo', () => ({ value: null }))
 
-  expect((await $.command.run({ command: 'cos', args: 'config', ...HOW })).text).toBe('CompanyOS · config')
+  expect((await $.command.run({ command: 'cos', args: 'config', ...HOW })).text).toBe('companyos · opened config')
   const ui = await $.ui.mount(HUB)
   expect(await ui.find({ type: 'Text', text: /\/cos config/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /protectedPaths/ })).toBeDefined()
@@ -26,6 +26,7 @@ test('the hub opens on a tab, and its tab buttons switch the body', async ($, on
   expect(await ui.find({ type: 'Text', text: /Done gate · runs before Claude ends a turn/ })).toBeDefined()
   await ui.press({ key: 'tab-checkpoint' })
   expect(await ui.find({ type: 'Text', text: /Checkpoints need a git repository/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Snapshots don't touch your files/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -54,15 +55,18 @@ test('the hint line suggests how to finish @ and / words', async ($, on) => {
   ui = await $.ui.mount(hint)
   expect((await ui.find({ type: 'Text' }))?.text).toBe('? for shortcuts')
   await ui.unmount()
+
+  // With nothing typed, the design's own hint.
+  ui = await $.ui.mount({ ...hint, props: { ...hint.props, isDraft: false } })
+  expect((await ui.find({ type: 'Text' }))?.text).toBe('? for shortcuts · @ agents · / commands · $ shell')
+  await ui.unmount()
 })
 
-test('focus folds routine reads to one line and leaves edits alone', async ($, on) => {
-  on('ui.open', () => ({ value: { isPlaced: true } }))
+test('focus starts on and folds routine reads; /cos focus turns it off', async ($, on) => {
   on('ui.render', { component: 'ToolUse' }, (_, e) => {
     const { Text } = _.ui.resolve(e)
     return <Text>engine row {e.props.tool}</Text>
   })
-  expect((await $.command.run({ command: 'cos', args: 'focus', ...HOW })).text).toContain('Focus on')
   const row = (tool: string, input: object) =>
     ({ plugin: 'companyos', component: 'ToolUse', requestId: tool, surface: 'terminal', props: { tool_use_id: tool, tool, input, isRunning: false, isErrored: false, isInterrupted: false } }) as const
 
@@ -71,5 +75,10 @@ test('focus folds routine reads to one line and leaves edits alone', async ($, o
   await ui.unmount()
   ui = await $.ui.mount(row('Edit', { file_path: 'src/a.ts' }) as never)
   expect((await ui.find({ type: 'Text' }))?.text).toBe('engine row Edit')
+  await ui.unmount()
+
+  expect((await $.command.run({ command: 'cos', args: 'focus', ...HOW })).text).toBe('focus off')
+  ui = await $.ui.mount(row('Read', { file_path: 'src/a.ts' }) as never)
+  expect((await ui.find({ type: 'Text' }))?.text).toBe('engine row Read')
   await ui.unmount()
 })

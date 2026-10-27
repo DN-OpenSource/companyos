@@ -14,7 +14,7 @@ test('a Skill tool call counts as a skill load when skill.prompt never arrives',
     surface: 'terminal',
     props: { title: 'events', isFocused: false, bodyColumns: 120, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
   })
-  expect(await ui.find({ type: 'Text', text: /skill_load\s+code-review \(Skill tool\)/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /The lead picked up the code-review playbook/ })).toBeDefined()
   await ui.unmount()
 })
 

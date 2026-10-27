@@ -15,6 +15,7 @@ function world(on: On, opened: string[], status: (string | undefined)[]) {
     return { value: undefined }
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000, percent: 46 }, rateLimits: [], cost: { usd: 1.23 } } }))
 }
 
 test('a new session shows the hub and the status line at once', async ($, on) => {
@@ -23,7 +24,7 @@ test('a new session shows the hub and the status line at once', async ($, on) =>
   world(on, opened, status)
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   expect(opened).toEqual(['companyos'])
-  expect(status[0]).toBe('CompanyOS · ready · /cos for the hub')
+  expect(status[0]).toBe('CompanyOS · ctx 46% · $1.23')
 })
 
 test('openOnStart off leaves the hub to /cos', { options: { openOnStart: false } }, async ($, on) => {

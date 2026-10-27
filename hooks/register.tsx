@@ -13,7 +13,6 @@ import { guard } from './guard'
 import { hub, openHub } from './hub'
 import { memory } from './memory'
 import { modes } from './mode'
-import { office } from './office'
 import { QUERY_TOOL, reports } from './reports'
 import { sessions } from './sessions'
 import { router } from './router'
@@ -49,6 +48,7 @@ const COMMANDS = [
     description: 'CompanyOS: work tickets from Jira, Notion or Linear and keep the wall in sync',
     argumentHint: '[jira|notion|linear] start|move|done|block|add|remove <KEY> … | sync | wall',
   },
+  { name: 'ticksync', description: 'CompanyOS: sync the ticket wall from Jira, Notion or Linear', argumentHint: '[jira|notion|linear]' },
   { name: 'mode', description: 'CompanyOS: switch between technical and plain-language rendering', argumentHint: '[plain|technical]' },
   { name: 'daily', description: "CompanyOS: write today's plain-language page and standup to .companyos/" },
   { name: 'report', description: 'CompanyOS: weekly report, or export events as CSV or JSON', argumentHint: '[week|csv|json]' },
@@ -116,8 +116,13 @@ export const register: Register = (on, options) => {
     })
     // Everything shows from the start: the status line now, and the hub beside the transcript (the engine
     // seats a pane it was not asked for once the terminal is wide enough, and holds it until then).
-    $.ui.status(`CompanyOS · ready${await statusLine($)} · /cos for the hub`)
     if (options.openOnStart !== false && e.isInteractive) void openHub($)
+    try {
+      const usage = await $.session.usage()
+      $.ui.status(`CompanyOS · ctx ${Math.round(usage.context.percent ?? 0)}% · $${(usage.cost?.usd ?? 0).toFixed(2)}${await statusLine($)}`)
+    } catch {
+      $.ui.status('CompanyOS · ready')
+    }
     return next(e)
   })
 
@@ -136,7 +141,6 @@ export const register: Register = (on, options) => {
   reports(on)
   diffs(on)
   sessions(on)
-  office(on, String(options.theme ?? 'loft'), options.lowPower === true)
   gates(on, options)
   hub(on, options)
 }

@@ -3,7 +3,7 @@ import type { EngineInterface, On, RenderInput } from 'claude-code'
 
 import type { Change, Segment } from '../types'
 import { log } from './events'
-import { clip, time } from './util'
+import { clip, COL } from './util'
 
 export const DIFF = 'companyos-diff'
 const MAX_CHANGES = 30
@@ -188,54 +188,61 @@ export async function diffTotals($: EngineInterface) {
 }
 
 export async function diffBody($: EngineInterface, e: RenderInput<'Pane'>) {
-  const { Box, Button, Code, Text } = $.ui.resolve(e)
-  const list = [...(await read($, changes))].reverse()
-  const t = await diffTotals($)
+  const { Box, Button, Text } = $.ui.resolve(e)
+  const list = await read($, changes)
+  const width = e.props.bodyColumns
+  // Every hunk of every change, numbered in order, newest change last as the design lists them.
+  type Card = { c: Change; k: number; seg: ReturnType<typeof hunkCards>[number]['seg'] | undefined; isReverted: boolean }
+  const cards = list.flatMap((c): Card[] =>
+    c.isRevertible ? hunkCards(c).map(({ k, seg }) => ({ c, k, seg, isReverted: c.reverted.includes(k) })) : [{ c, k: -1, seg: undefined, isReverted: false }],
+  )
+  const shown = cards.slice(-12)
 
   return (
     <Box flexDirection="column">
-      <Text bold>
-        +{t.added} −{t.removed} in {t.files} files
-      </Text>
-      {list.length === 0 && <Text dimColor>No edits yet.</Text>}
-      {list.slice(0, 10).map(c => {
-        const done = isAllReverted(c)
-        const parts = c.isRevertible ? hunks(c.file, c.segments) : []
-        return (
-          <Box flexDirection="column">
-            <Box flexDirection="row">
-              <Text dimColor={done}>
-                {time(c.ts)} {c.agent} {clip(c.file, e.props.bodyColumns - 44)} <Text color="diffAdded">+{c.added}</Text> <Text color="diffRemoved">−{c.removed}</Text>
-                {done ? ' reverted ' : ` ${parts.length} hunks `}
-              </Text>
-              {!done && c.isRevertible && !c.isNew && (
-                <Button key={`revert-${c.id}`} plain onPress={() => revert($, c.id).then(msg => $.ui.toast(msg))}>
-                  revert all
-                </Button>
-              )}
-            </Box>
-            {!done &&
-              parts.map((part, k) =>
-                c.reverted.includes(k) ? (
-                  <Text dimColor>
-                    {'  '}hunk {k + 1} reverted
-                  </Text>
-                ) : (
-                  <Box flexDirection="column">
-                    <Code format="diff" path={c.file} source={part.diff} />
-                    {!c.isNew && (
-                      <Button key={`revert-${c.id}-${k + 1}`} plain onPress={() => revert($, c.id, k).then(msg => $.ui.toast(msg))}>
-                        {'  '}revert hunk {k + 1}
-                      </Button>
-                    )}
-                  </Box>
-                ),
-              )}
+      {cards.length === 0 && <Text dimColor>No edits yet.</Text>}
+      {shown.map((card, n) => (
+        <Box flexDirection="column">
+          <Box flexDirection="row">
+            <Text dimColor={card.isReverted}>
+              <Text color={COL.acc}>{card.c.agent.padEnd(8)}</Text>
+              {clip(card.c.file, Math.max(12, width - 40)).padEnd(Math.min(36, Math.max(12, width - 40)))}
+              <Text dimColor> hunk {cards.length - shown.length + n + 1} </Text>
+            </Text>
+            {card.k >= 0 && !card.isReverted && !card.c.isNew && (
+              <Button key={`revert-${card.c.id}-${card.k + 1}`} plain onPress={() => revert($, card.c.id, card.k).then(msg => $.ui.toast(msg))}>
+                <Text color={COL.fg}>[ r: revert ]</Text>
+              </Button>
+            )}
+            {card.isReverted && <Text dimColor>[ reverted ]</Text>}
+            {card.k < 0 && <Text dimColor>[ too large to show · use git ]</Text>}
           </Box>
-        )
-      })}
+          {card.seg &&
+            [...card.seg.pre.map(l => [' ', l] as const), ...card.seg.del.map(l => ['-', l] as const), ...card.seg.add.map(l => ['+', l] as const), ...card.seg.post.map(l => [' ', l] as const)].map(([sign, l]) => (
+              <Text
+                dimColor={card.isReverted}
+                {...(sign === '+' ? { backgroundColor: COL.plusBg } : sign === '-' ? { backgroundColor: COL.minusBg } : {})}
+              >
+                {clip(`${sign} ${l}`, width - 2).padEnd(Math.max(10, width - 2))}
+              </Text>
+            ))}
+        </Box>
+      ))}
     </Box>
   )
+}
+
+// Each changed run of a change with two lines of context either side, numbered as compose counts them.
+function hunkCards(c: Change): { k: number; seg: { pre: string[]; del: string[]; add: string[]; post: string[] } }[] {
+  const out: { k: number; seg: { pre: string[]; del: string[]; add: string[]; post: string[] } }[] = []
+  let k = 0
+  c.segments.forEach((s, i) => {
+    if ('eq' in s) return
+    const prev = c.segments[i - 1]
+    const next = c.segments[i + 1]
+    out.push({ k: k++, seg: { pre: prev && 'eq' in prev ? prev.eq.slice(-CONTEXT) : [], del: s.del, add: s.add, post: next && 'eq' in next ? next.eq.slice(0, CONTEXT) : [] } })
+  })
+  return out
 }
 
 export function diffs(on: On) {

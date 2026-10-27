@@ -20,7 +20,7 @@ test('@mem remember is kept and shown in the memory pane', async ($, on) => {
 
   const ui = await $.ui.mount(PANE)
   expect(await ui.find({ type: 'Text', text: /pnpm, not npm/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /1 memories/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /\/mem/ })).toBeDefined()
   await ui.unmount()
 })
 

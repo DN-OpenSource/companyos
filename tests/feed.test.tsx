@@ -7,14 +7,14 @@ const PANE = {
   props: {
     title: 'CompanyOS · events',
     isFocused: false,
-    bodyColumns: 80,
+    bodyColumns: 100,
     placement: 'dock',
     scroll: { offset: 0, bodyRows: 20 },
     view: {},
   },
 } as const
 
-test('tool calls land in the feed, failed ones too',async ($, on) => {
+test('tool calls land in the feed, in plain words and in technical ones', async ($, on) => {
   on('clock.now', () => ({ value: 1_000 }))
   on('tool.call', (_, e) =>
     String(e.tool) === 'Bash' && 'command' in e && e.command === 'false'
@@ -27,14 +27,20 @@ test('tool calls land in the feed, failed ones too',async ($, on) => {
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect((await ui.find({ type: 'Text', text: /tool_call\s+Bash ls -la/ }))?.text).toContain('lead')
-    expect(await ui.find({ type: 'Text', text: /Bash false/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /The lead is running a command/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Something failed while running a command/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^tool {5}$/ })).toBeDefined()
+    await ui.press({ key: 'events-tech' })
+    expect(await ui.find({ type: 'Text', text: /^tool Bash ls -la$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^tool Bash false exit=1$/ })).toBeDefined()
+    await ui.press({ key: 'events-plain' })
     await ui.unmount()
   }
 })
 
 test('an empty feed says so', async $ => {
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text' }))?.text).toBe('No events yet.')
+  expect(await ui.find({ type: 'Text', text: /^\/events $/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'No events yet.' })).toBeDefined()
   await ui.unmount()
 })

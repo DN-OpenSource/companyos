@@ -2,7 +2,7 @@ import type { EngineInterface, On, RenderInput } from 'claude-code'
 
 import type { Ticket } from '../types'
 import { log } from './events'
-import { clip } from './util'
+import { clip, COL } from './util'
 
 export const TICKETS = 'companyos-tickets'
 export const TICKET_TOOL = 'ticket_update'
@@ -93,42 +93,44 @@ export async function ticketCommand($: EngineInterface, args: string): Promise<s
 export async function ticketsBody($: EngineInterface, e: RenderInput<'Pane'>) {
   const { Box, Button, Text } = $.ui.resolve(e)
   const list = await tickets($)
-  const width = e.props.bodyColumns
-  const noReq = list.filter(t => !t.requirement).length
+  const sources = [...new Set(list.map(t => t.source))]
+  // The design's four columns; a blocked ticket stays in its column, marked.
+  const cols: [string, Ticket['status'][]][] = [
+    ['To do', ['To Do']],
+    ['In progress', ['In Progress', 'Blocked']],
+    ['In review', ['In Review']],
+    ['Done', ['Done']],
+  ]
+  const w = Math.max(16, Math.floor((e.props.bodyColumns - 2) / 4))
 
   return (
     <Box flexDirection="column">
-      {list.length === 0 && <Text dimColor>No tickets yet. /ticket sync, or @jira start PROJ-12</Text>}
-      {COLUMNS.map(col => {
-        const here = list.filter(t => t.status === col)
-        return here.length === 0 ? null : (
-          <Box flexDirection="column">
-            <Text bold>
-              {col} ({here.length})
-            </Text>
-            {here.map(t => (
-              <Box flexDirection="row">
-                <Text color={col === 'Blocked' ? 'error' : t.agent ? undefined : 'inactive'}>
-                  {'  '}
-                  {t.key.padEnd(10)} {clip(t.title || '(untitled)', Math.max(10, width - 44))} <Text dimColor>{t.agent ?? 'nobody'}{t.requirement ? ` · ${t.requirement}` : ''}</Text>{' '}
-                </Text>
-                {col !== 'Done' && col !== 'In Progress' && (
-                  <Button key={`work-${t.key}`} plain onPress={() => ticketCommand($, `${t.source} start ${t.key}`).then(() => {})}>
-                    work on this
-                  </Button>
-                )}
-              </Box>
-            ))}
+      <Text>
+        <Text color={COL.acc}>/ticket wall</Text> <Text dimColor>· {sources.length ? `synced via ${sources.join(', ')}` : 'not synced yet · /ticksync'}</Text>
+      </Text>
+      <Box flexDirection="row">
+        {cols.map(([name, statuses]) => (
+          <Box flexDirection="column" width={w}>
+            <Text color={COL.accL}>{name}</Text>
+            {list
+              .filter(t => statuses.includes(t.status))
+              .map(t => (
+                <Button key={`work-${t.key}`} plain onPress={() => ticketCommand($, `${t.source} start ${t.key}`).then(msg => $.ui.toast(msg))}>
+                  <Text color={t.status === 'Blocked' ? COL.red : COL.acc}>{t.status === 'Blocked' ? '⚑ ' : ''}{t.key} </Text>
+                  <Text color={t.agent ? COL.fg : COL.dim}>{clip(t.title, w - t.key.length - 3)}</Text>
+                </Button>
+              ))}
           </Box>
-        )
-      })}
-      {list.length > 0 && <Text dimColor>{noReq} tickets name no requirement ID</Text>}
+        ))}
+      </Box>
+      <Text dimColor>start|move|done|block|add|remove &lt;KEY&gt; · /ticksync</Text>
     </Box>
   )
 }
 
 export function ticketing(on: On) {
   on('command.run', { command: 'ticket' }, async ($, e) => ({ text: await ticketCommand($, e.args) }))
+  on('command.run', { command: 'ticksync' }, async ($, e) => ({ text: await ticketCommand($, `${e.args} sync`.trim()) }))
 
   // Claude reports what it read or changed in the tracker; the wall follows.
   on('tool.call', { tool: /^mcp__companyos__ticket_update$/ }, async ($, e) => {

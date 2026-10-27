@@ -3,7 +3,7 @@ import type { EngineInterface, On, RenderInput } from 'claude-code'
 import type { CosEvent } from '../types'
 import { forecast } from './anthropic'
 import { readEvents } from './events'
-import { ctxColor, meter, skillOf, tokens, usd } from './util'
+import { clip, COL, meter, skillOf, tokens, usd } from './util'
 
 export const STATS = 'companyos-stats'
 
@@ -25,68 +25,66 @@ function tally(list: CosEvent[], kind: CosEvent['kind'], keyOf: (x: CosEvent) =>
 
 export async function telemetryBody($: EngineInterface, e: RenderInput<'Pane'>) {
   const { Box, Text } = $.ui.resolve(e)
-  const [list, usage, agents, ahead] = await Promise.all([readEvents($), $.session.usage(), $.agent.list(), forecast($)])
-  const pct = usage.context.percent ?? 0
+  const [list, usage, ahead] = await Promise.all([readEvents($), $.session.usage(), forecast($)])
+  const pct = Math.round(usage.context.percent ?? 0)
   const turns = list.filter(x => x.kind === 'turn' && x.agent === 'lead')
   const perTurn = turns.length > 1 ? pct / turns.length : 0
   const toCompact = perTurn > 0 ? Math.max(0, Math.floor((95 - pct) / perTurn)) : undefined
+  const limit = usage.rateLimits[0]
+  const pace = ahead.find(a => limit && a.startsWith(limit.kind))?.match(/hit in (.+)$/)?.[1]
 
   const byAgent = tally(list, 'turn', x => x.agent)
-  const bySkill = tally(list, 'skill_load', x => skillOf(x.detail))
+  const skills = new Map<string, { tokens: number; to: Set<string> }>()
+  for (const x of list) {
+    if (x.kind !== 'skill_load') continue
+    const s = skills.get(skillOf(x.detail)) ?? { tokens: 0, to: new Set<string>() }
+    s.tokens += x.tokensIn ?? 0
+    s.to.add(x.agent)
+    skills.set(skillOf(x.detail), s)
+  }
   const heavy = list
-    .filter(x => x.kind === 'tool_call' && (x.tokensOut ?? 0) > usage.context.window * 0.05)
-    .slice(-5)
-  const compactions = list.filter(x => x.kind === 'compaction')
+    .filter(x => x.kind === 'tool_call' && (x.tokensOut ?? 0) > usage.context.window * 0.02)
+    .sort((a, b) => (b.tokensOut ?? 0) - (a.tokensOut ?? 0))
+    .slice(0, 3)
+  const top = Math.max(1, ...byAgent.map(r => r.tokens))
+  const topSkill = Math.max(1, ...[...skills.values()].map(s => s.tokens))
+  const call = (detail: string) => detail.replace(/^(\S+) (.*)$/, (_, tool: string, arg: string) => `${tool}(${clip(arg, 30)})`)
 
   return (
     <Box flexDirection="column">
-      <Text bold>Context</Text>
-      <Text color={ctxColor(pct)}>
-        {meter(pct, 20)} {Math.round(pct)}% of {tokens(usage.context.window)}
-        {toCompact === undefined ? '' : ` · ~${toCompact} turns to compaction`}
+      <Text>
+        <Text color={COL.acc}>Context</Text> <Text color={pct >= 90 ? COL.red : pct >= 70 ? COL.accL : COL.sage}>{meter(pct, 24)}</Text> {pct}%
+        {toCompact === undefined ? '' : ` · ~${toCompact} turns until compaction`}
       </Text>
-      <Text> </Text>
-      <Text bold>Cost</Text>
-      <Text>Session {usd(usage.cost?.usd)}</Text>
-      {usage.rateLimits.map(r => (
-        <Text color={ctxColor(r.percentUsed)}>
-          {r.kind.padEnd(10)} {meter(r.percentUsed)} {Math.round(r.percentUsed)}%{r.resetsAt ? ` · resets ${r.resetsAt}` : ''}
-        </Text>
-      ))}
-      {ahead.map(line => (
-        <Text dimColor>{line}</Text>
-      ))}
-      <Text> </Text>
-      <Text bold>Agents</Text>
-      {agents.length === 0 && byAgent.length === 0 && <Text dimColor>Only the lead so far.</Text>}
+      <Text>
+        <Text color={COL.acc}>Cost &amp; rate limits</Text>
+        {usd(usage.cost?.usd)} this session
+        {limit ? ` · ${limit.kind === 'five_hour' ? '5h' : limit.kind} window ${Math.round(limit.percentUsed)}%` : ''}
+        {pace ? ` · limit hit in ~${pace.replace(' minutes', ' min')}` : ''}
+      </Text>
+      <Text color={COL.acc}>Tokens by agent</Text>
+      {byAgent.length === 0 && <Text dimColor>  no turns yet</Text>}
       {byAgent.map(r => (
         <Text>
-          {r.name.slice(0, 16).padEnd(16)} {String(r.count).padStart(3)} turns {tokens(r.tokens).padStart(7)} tok
+          {'  '}
+          {r.name.slice(0, 10).padEnd(10)}
+          <Text color={COL.sage}>{'█'.repeat(Math.max(1, Math.round((r.tokens / top) * 20)))}</Text> {tokens(r.tokens)}
         </Text>
       ))}
-      {agents.map(a => (
-        <Text dimColor>
-          {(a.name ?? a.id).slice(0, 16).padEnd(16)} {a.status.padEnd(9)} {a.type}: {a.description}
-        </Text>
-      ))}
-      <Text> </Text>
-      <Text bold>Skills</Text>
-      {bySkill.length === 0 && <Text dimColor>No skill loaded yet.</Text>}
-      {bySkill.map(r => (
+      <Text color={COL.acc}>Tokens by skill · passed to subagents</Text>
+      {skills.size === 0 && <Text dimColor>  no skill loaded yet</Text>}
+      {[...skills].map(([name, s]) => (
         <Text>
-          {r.name.slice(0, 28).padEnd(28)} {String(r.count).padStart(3)}× {tokens(r.tokens).padStart(7)} tok
+          {'  '}
+          {name.slice(0, 22).padEnd(22)}
+          <Text color={COL.sage}>{'█'.repeat(Math.max(1, Math.round((s.tokens / topSkill) * 6)))}</Text> {tokens(s.tokens)} → {[...s.to].join(', ')}
         </Text>
       ))}
-      <Text> </Text>
-      <Text bold>Diagnostics</Text>
-      <Text dimColor>
-        {compactions.length} compactions · {heavy.length} tool results over 5% of the window
+      <Text>
+        <Text color={COL.acc}>Oversized tool results</Text>
+        {heavy.length === 0 ? <Text dimColor>none</Text> : <Text color={COL.accL}>⚠ {heavy.map(x => `${call(x.detail)} ${tokens(x.tokensOut ?? 0)}${x === heavy[0] ? ' tokens' : ''}`).join(' · ')}</Text>}
       </Text>
-      {heavy.map(x => (
-        <Text color="warning">
-          {tokens(x.tokensOut ?? 0).padStart(7)} {x.detail}
-        </Text>
-      ))}
+      <Text dimColor>/graph agents|skills|files|memory|decisions|cost → Mermaid you can copy</Text>
     </Box>
   )
 }

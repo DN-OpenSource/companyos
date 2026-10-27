@@ -5,7 +5,8 @@ import type { GateCheck, GateState } from '../types'
 import { readChanges } from './diff'
 import { log, readEvents } from './events'
 import { SECRET } from './guard'
-import { clip } from './util'
+import { tickets } from './tickets'
+import { clip, COL } from './util'
 
 type Mode = 'block' | 'warn' | 'off'
 type Config = { commands: Record<'tests' | 'types' | 'lint' | 'coverage', string>; modes: Record<string, Mode>; coverageTarget: number }
@@ -150,8 +151,8 @@ export async function runGate($: EngineInterface, options: PluginOptions): Promi
   const untested = names.filter(n => !TEST_FILE.test(n) && !MANIFEST.test(n) && /\.(ts|tsx|js|jsx|py|go|rs|dart|swift|kt|java|rb)$/.test(n) && !tests.some(t => stem(t).startsWith(stem(n))))
   const review = [
     ...(busiest ? [`Read first: ${busiest[0]} · ${busiest[1]} lines added`] : []),
-    ...(untested.length ? [`No test changed beside: ${untested.slice(0, 3).join(', ')}`] : []),
-    ...names.filter(n => MANIFEST.test(n)).map(n => `Dependency change: ${n}`),
+    ...(untested.length ? [`Untested: ${untested.slice(0, 3).join(', ')} · no test changed beside them`] : []),
+    ...(names.some(n => MANIFEST.test(n)) ? [`Outside the ticket: ${names.filter(n => MANIFEST.test(n)).join(', ')} · dependency change`] : []),
   ]
 
   const state: GateState = { ts: await $.clock.now(), isRunning: false, checks, review, holds: (await read($, gate)).holds }
@@ -159,7 +160,11 @@ export async function runGate($: EngineInterface, options: PluginOptions): Promi
   const failed = checks.filter(c => c.status === 'fail')
   await log($, 'guard', undefined, `gate: ${failed.length ? `${failed.map(c => c.name).join(', ')} failed` : 'passed'}`, { isDone: true, isError: failed.length > 0 })
   const tests1 = checks.find(c => c.id === 'tests')
-  if (tests1?.status === 'fail') $.ui.log(`✕ Done gate: ${tests1.note}`)
+  if (tests1?.status === 'fail') {
+    // The design's card: how many failed, the command, and the first failing test it names.
+    const n = tests1.note.match(/(\d+)\s+(?:failed|failing)/)?.[1]
+    $.ui.log(`✕ ${n ? `${n} tests failed` : 'tests failed'} · Bash(${tests1.note.split(' · ')[0]})${tests1.note.includes(' · exit') ? ` · ${tests1.note.split(' · ').slice(2).join(' · ')}` : ''}`)
+  }
   return state
 }
 
@@ -174,40 +179,69 @@ function holdReason(state: GateState) {
 
 export async function qualityBody($: EngineInterface, e: RenderInput<'Pane'>, options: PluginOptions) {
   const { Box, Button, Text } = $.ui.resolve(e)
-  const g = await read($, gate)
-  const icon = { pass: '✓', fail: '✕', warn: '!', off: '·', running: '…' } as const
-  const color = { pass: 'success', fail: 'error', warn: 'warning', off: 'inactive', running: 'suggestion' } as const
-  const fixable = g.checks.filter(c => c.status === 'fail' || c.status === 'warn')
+  const [g, wall] = await Promise.all([read($, gate), tickets($)])
+  const look = { pass: ['✓', COL.sage], fail: ['✕', COL.red], warn: ['!', COL.accL], off: ['·', COL.dim], running: ['▮', COL.acc] } as const
+  const failed = g.checks.filter(c => c.status === 'fail').length
+  const warned = g.checks.filter(c => c.status === 'warn').length
+  const label = g.isRunning ? 'checking…' : failed ? `turn held · ${failed} failing · ${warned} warn` : warned ? `ready · ${warned} warn` : g.ts ? 'ready to ship ✓' : 'not run yet'
+  const pill = g.isRunning ? COL.acc : failed ? COL.red : warned ? COL.accL : COL.sage
+  const ticket = wall.find(t => t.status === 'In Progress' || t.status === 'In Review')?.key
+  const rows = g.checks.length ? g.checks : CHECKS.map(([id, name]): GateCheck => ({ id, name, status: 'off', note: 'not run yet · r runs the gate' }))
   const fix = (text: string) => () => $.prompt.submit({ text }).then(() => {})
+  const fixable = g.checks.filter(c => c.status === 'fail' || c.status === 'warn')
   return (
     <Box flexDirection="column">
-      <Text bold>Done gate · runs before Claude ends a turn that changed files</Text>
-      <Text dimColor>{g.ts ? `last run ${new Date(g.ts).toTimeString().slice(0, 8)}${g.isRunning ? ' · running' : ''}` : 'not run yet'} · block · warn · off per check in /cos config</Text>
-      {g.checks.map(c => (
+      <Box flexDirection="row">
+        <Text>
+          <Text color={COL.acc}>Done gate</Text>
+          <Text dimColor> · runs before Claude ends a turn{ticket ? ` · ${ticket}` : ''} </Text>
+        </Text>
+        <Text backgroundColor={pill} color={COL.ink}>
+          {' '}
+          {label}{' '}
+        </Text>
+      </Box>
+      <Text>
+        {rows.map(c => (
+          <Text color={look[c.status][1]}>██ </Text>
+        ))}
+      </Text>
+      {rows.map(c => (
         <Box flexDirection="row">
-          <Text color={color[c.status]}>
-            {icon[c.status]} {c.name.padEnd(10)} {clip(c.note, Math.max(20, e.props.bodyColumns - 30))}{' '}
+          <Text {...(c.status === 'fail' ? { backgroundColor: COL.minusBg } : {})}>
+            <Text color={look[c.status][1]}>{look[c.status][0]} </Text>
+            <Text color={COL.fg}>{c.name.padEnd(10)}</Text>
+            <Text color={c.status === 'fail' ? '#f9f4ed' : COL.fg}>{clip(c.note, Math.max(20, e.props.bodyColumns - 26))}</Text>{' '}
           </Text>
           {(c.status === 'fail' || c.status === 'warn') && (
             <Button key={`fix-${c.id}`} plain onPress={fix(`Fix the ${c.name} check from the CompanyOS done gate: ${c.note}`)}>
-              fix
+              <Text backgroundColor={COL.acc} color={COL.ink}>
+                {' '}fix ▸{' '}
+              </Text>
             </Button>
           )}
         </Box>
       ))}
       <Box flexDirection="row">
-        <Button key="gate-run" hotkey="r" variant="primary" onPress={() => runGate($, options).then(() => {})}>
-          r: re-run gate
+        <Button key="gate-run" hotkey="r" plain onPress={() => runGate($, options).then(() => {})}>
+          <Text backgroundColor={COL.acc} color={COL.ink}>
+            {' '}r: re-run gate{' '}
+          </Text>
         </Button>
+        <Text> </Text>
         {fixable.length > 0 && (
-          <Button key="gate-fix-all" hotkey="f" onPress={fix(holdReason({ ...g, checks: fixable.map(c => ({ ...c, status: 'fail' })) }))}>
-            f: ask Claude to fix all
+          <Button key="gate-fix-all" hotkey="f" plain onPress={fix(holdReason({ ...g, checks: fixable.map(c => ({ ...c, status: 'fail' })) }))}>
+            <Text color={COL.fg}>[ f: ask Claude to fix all ]</Text>
           </Button>
         )}
+        <Text dimColor> block · warn · off per check in /cos config</Text>
       </Box>
-      {g.review.length > 0 && <Text bold>Before you review</Text>}
+      {g.review.length > 0 && <Text color={COL.acc}>Before you review</Text>}
       {g.review.map(r => (
-        <Text>▸ {r}</Text>
+        <Text>
+          <Text color={COL.acc}>▸ </Text>
+          {r}
+        </Text>
       ))}
     </Box>
   )

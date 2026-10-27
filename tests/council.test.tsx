@@ -23,6 +23,8 @@ function seats(on: On, vote: string, others: Record<string, string> = {}) {
   on('model.complete', (_, e) => answer(e.prompt))
   on('model.fork', (_, e) => answer(e.prompt))
   on('session.model', () => ({ value: 'claude-sonnet-5-5' }))
+  on('ui.log', () => ({ value: undefined }))
+  on('ui.toast', () => ({ value: undefined }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
 }
 
@@ -30,7 +32,7 @@ test('a council of 3 votes, and its verdict is drawn and stored', async ($, on) 
   const clock = mock.clock(on, { now: 1_700_000_000_000 })
   mock.store(on)
   on('session.repo', () => ({ value: null }))
-  seats(on, 'B', { reviewer: 'A' })
+  seats(on, 'B', { performance: 'A' })
 
   const ran = await $.command.run({ command: 'council', args: '3 which store? A) sqlite B) drizzle', ...HOW })
   expect(ran.text).toContain('convened')
@@ -38,7 +40,8 @@ test('a council of 3 votes, and its verdict is drawn and stored', async ($, on) 
   await clock.settle()
 
   const ui = await $.ui.mount(PANE)
-  expect(await ui.find({ type: 'Text', text: /drizzle · 2–1/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Verdict: B\) drizzle · 2–1 · no veto/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /performance/ })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'accept' })).toBeDefined()
   await ui.unmount()
 })
@@ -55,6 +58,6 @@ test('a security veto blocks whatever the count', async ($, on) => {
   await clock.settle()
 
   const ui = await $.ui.mount(PANE)
-  expect(await ui.find({ type: 'Text', text: /blocked.*vetoed by security/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Verdict: blocked · vetoed by security/ })).toBeDefined()
   await ui.unmount()
 })

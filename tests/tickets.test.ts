@@ -27,8 +27,11 @@ test('a ticket Claude reports lands on the wall, blocked ones flagged', async ($
   expect((await report({ key: 'TMP-1', remove: true } as unknown as Record<string, string>)).result).toBe('TMP-1 was not on the wall.')
 
   const ui = await $.ui.mount(PANE)
-  expect(await ui.find({ type: 'Text', text: /PROJ-12\s+Login fails/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /Blocked \(1\)/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^PROJ-12 $/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Login fails/ })).toBeDefined()
+  // A blocked ticket stays in its column, flagged.
+  expect(await ui.find({ type: 'Text', text: /⚑ PROJ-13/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /synced via jira/ })).toBeDefined()
   expect(await ui.find({ type: 'Button', key: 'work-PROJ-13' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /TMP-1/ })).toBeUndefined()
   await ui.unmount()

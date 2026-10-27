@@ -20,7 +20,8 @@ test('the band shows context, cost and live agents', async ($, on) => {
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...BAND, surface })
-    expect((await ui.find({ type: 'Text', text: /ctx 72%/ }))?.text).toContain('72')
+    expect(await ui.find({ type: 'Text', text: / ctx / })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: / 72% / })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /\$4\.31/ })).toBeDefined()
     expect(await ui.find({ type: 'Button', key: 'agent-a1' })).toBeDefined()
     await ui.unmount()

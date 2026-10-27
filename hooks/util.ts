@@ -29,3 +29,16 @@ export function argOf(e: object): string {
 
 // A skill_load event's detail starts with the skill's name.
 export const skillOf = (detail: string) => detail.split(' ')[0] ?? detail
+
+// The design's palette (its organic theme, as hex the terminal can draw).
+export const COL = {
+  fg: '#dcd3c4',
+  dim: '#a19786',
+  acc: '#f6a06b',
+  accL: '#ffc6a5',
+  sage: '#aebf92',
+  red: '#e0705f',
+  ink: '#2e2b25',
+  plusBg: '#3d4632',
+  minusBg: '#5a3029',
+} as const

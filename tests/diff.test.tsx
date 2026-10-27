@@ -34,8 +34,9 @@ test('an edit splits into hunks; one hunk reverts alone, then the rest, and the 
   await $.tool.call({ tool: 'Edit', file_path: '/repo/x.ts', old_string: 'b', new_string: 'B\nB2' })
 
   const ui = await $.ui.mount(PANE)
-  expect(await ui.find({ type: 'Text', text: /\+2 −2 in 1 files/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: / 2 hunks / })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: / hunk 1 / })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: / hunk 2 / })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /\+ B2/ })).toBeDefined()
   await ui.press({ key: `revert-${id}-2` })
   await ui.unmount()
 

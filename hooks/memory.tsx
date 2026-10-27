@@ -2,7 +2,7 @@ import type { EngineInterface, On, RenderInput } from 'claude-code'
 
 import type { MemoryEntry } from '../types'
 import { log, readEvents } from './events'
-import { clip, ctxColor, day, meter, tokens } from './util'
+import { clip, COL, day, meter, tokens } from './util'
 
 export const MEMORY = 'companyos-memory'
 const KEY = 'memory/entries'
@@ -109,62 +109,61 @@ export async function memoryBlock($: EngineInterface): Promise<string | undefine
   const ids = new Set(chosen.map(m => m.id))
   await $.store.set(KEY, (await entries($)).map(m => (ids.has(m.id) ? { ...m, lastUsed: now } : m)))
   await log($, 'memory', undefined, `injected ${chosen.length} memories`)
+  const layers = ((await $.store.get(LAYERS)) as Layer[] | undefined)?.length ?? 0
+  $.ui.log(`memory: ${chosen.length} entries given with first prompt${layers ? ` · CLAUDE.md ${layers} layers` : ''}`)
   return ['Long-term memory kept by CompanyOS (facts the person or a council recorded):', ...chosen.map(m => `- ${m.text}`)].join('\n')
 }
 
 export async function memoryBody($: EngineInterface, e: RenderInput<'Pane'>) {
   const { Box, Button, Text } = $.ui.resolve(e)
-  const [list, usage, layers, evts, now] = await Promise.all([
-    visible($),
-    $.session.usage(),
-    $.store.get(LAYERS) as Promise<Layer[] | undefined>,
-    readEvents($),
-    $.clock.now(),
-  ])
-  const pct = usage.context.percent ?? 0
-  const lastCompact = [...evts].reverse().find(x => x.kind === 'compaction')
+  const [list, usage, layers, now] = await Promise.all([visible($), $.session.usage(), $.store.get(LAYERS) as Promise<Layer[] | undefined>, $.clock.now()])
+  const pct = Math.round(usage.context.percent ?? 0)
   const width = e.props.bodyColumns
+  const top = Math.max(1, ...(layers ?? []).map(l => l.tokens))
+  const home = (p: string) => p.replace(/\\/g, '/').replace(/^[A-Za-z]:\/Users\/[^/]+|^\/(Users|home)\/[^/]+/, '~')
 
   return (
     <Box flexDirection="column">
-      <Text bold>🐘 Elephant · {list.length} memories</Text>
+      <Text>
+        <Text color={COL.acc}>/mem</Text> <Text dimColor>· repo + global</Text>
+      </Text>
       {list.length === 0 && <Text dimColor>Nothing yet. @mem remember we use pnpm, not npm</Text>}
       {list.map(m => (
         <Box flexDirection="row">
-          <Button key={`pin-${m.id}`} plain onPress={() => memoryCommand($, `${m.isPinned ? 'unpin' : 'pin'} ${m.id}`).then(() => {})}>
-            {m.isPinned ? '📌' : '·'}
-          </Button>
-          <Text color={now - m.lastUsed > STALE ? 'warning' : undefined}>
-            {' '}#{m.id} {clip(m.text, width - 30)} <Text dimColor>{m.source} {day(m.ts)}{m.scope === 'global' ? ' global' : ''}</Text>{' '}
+          <Text>
+            <Text color={m.isPinned ? COL.acc : COL.dim}>{m.isPinned ? '◆' : '·'} </Text>
+            <Text color={COL.sage}>{(m.scope === 'global' ? 'global' : 'repo').padEnd(7)}</Text>
+            <Text color={now - m.lastUsed > STALE ? COL.accL : COL.fg}>{clip(m.text, Math.max(10, width - 30)).padEnd(Math.min(60, Math.max(10, width - 30)))}</Text>{' '}
           </Text>
+          <Button key={`pin-${m.id}`} plain onPress={() => memoryCommand($, `${m.isPinned ? 'unpin' : 'pin'} ${m.id}`).then(() => {})}>
+            <Text dimColor>pin </Text>
+          </Button>
           <Button key={`forget-${m.id}`} plain onPress={() => memoryCommand($, `forget ${m.id}`).then(() => {})}>
-            ✗
+            <Text dimColor>forget</Text>
           </Button>
         </Box>
       ))}
-      <Text> </Text>
       <Box flexDirection="row">
-        <Button key="mem-prune" onPress={() => memoryCommand($, 'prune').then(msg => $.ui.toast(msg))}>
-          prune
+        <Button key="mem-prune" plain onPress={() => memoryCommand($, 'prune').then(msg => $.ui.toast(msg))}>
+          <Text color={COL.fg}>[ prune ] </Text>
         </Button>
-        <Button key="mem-export" onPress={() => memoryCommand($, 'export').then(text => $.ui.copy({ text }).then(() => $.ui.toast('Memories copied as Markdown.')))}>
-          export
+        <Button key="mem-export" plain onPress={() => memoryCommand($, 'export').then(text => $.ui.copy({ text }).then(() => $.ui.toast('memories copied as Markdown')))}>
+          <Text color={COL.fg}>[ export ]</Text>
         </Button>
         <Text dimColor> · given to Claude with your first prompt</Text>
       </Box>
-      <Text> </Text>
-      <Text bold>CLAUDE.md layers</Text>
+      <Text color={COL.acc}>CLAUDE.md layers</Text>
+      {(layers ?? []).length === 0 && <Text dimColor>  read with the first prompt</Text>}
       {(layers ?? []).map(l => (
-        <Text dimColor>
-          {clip(l.path, Math.max(12, width - 34)).padEnd(Math.max(12, width - 34))} {meter(Math.min(100, (l.tokens / Math.max(1, ...(layers ?? []).map(x => x.tokens))) * 100), 10)} {tokens(l.tokens)}
+        <Text>
+          {'  '}
+          {clip(home(l.path), 28).padEnd(28)} <Text color={COL.sage}>{'█'.repeat(Math.max(1, Math.round((l.tokens / top) * 5)))}</Text> {tokens(l.tokens)}
         </Text>
       ))}
-      <Text> </Text>
-      <Text bold>🐟 Goldfish · context window</Text>
-      <Text color={ctxColor(pct)}>
-        {meter(pct, 20)} {Math.round(pct)}%
+      <Text>
+        <Text dimColor>context </Text>
+        <Text color={pct >= 90 ? COL.red : pct >= 70 ? COL.accL : COL.sage}>{meter(pct, 24)}</Text> {pct}%
       </Text>
-      <Text dimColor>{lastCompact ? `Last forgot: ${lastCompact.detail}` : 'Has not forgotten anything yet.'}</Text>
     </Box>
   )
 }

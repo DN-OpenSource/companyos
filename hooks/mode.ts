@@ -5,7 +5,7 @@ import type { CosEvent } from '../types'
 import { skillOf } from './util'
 
 // One event stream, two renderings: technical or plain language.
-const mode = atom({ plugin: 'companyos', key: 'mode' } as const, 'technical')
+const mode = atom({ plugin: 'companyos', key: 'mode' } as const, 'plain')
 
 export async function setMode($: EngineInterface, to: 'plain' | 'technical') {
   await update($, mode, () => to)

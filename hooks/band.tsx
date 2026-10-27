@@ -3,21 +3,21 @@ import type { On } from 'claude-code'
 import { readCouncil } from './council'
 import { diffTotals } from './diff'
 import { readEvents } from './events'
-import { isPlain, plain } from './mode'
 import { readGate } from './gate'
 import { readPending } from './guard'
 import { openHub } from './hub'
+import { isPlain, plain } from './mode'
 import { tickets } from './tickets'
-import { clip, ctxColor, usd } from './util'
+import { clip, COL, meter, usd } from './util'
 
-const GLYPH: Record<string, string> = {
-  pending: '·',
-  running: '●',
-  waiting: '◐',
-  idle: '○',
-  completed: '✓',
-  failed: '✗',
-  killed: '✗',
+// The design's glyph for the lead and the next three agents, and a colour per status.
+const GLYPHS = ['◆', '◎', '▲', '✦']
+const STATUS: Record<string, string> = {
+  running: COL.acc,
+  pending: COL.dim,
+  waiting: COL.accL,
+  idle: COL.sage,
+  failed: COL.red,
 }
 
 export function band(on: On) {
@@ -38,56 +38,65 @@ export function band(on: On) {
       diffTotals($),
       readGate($),
     ])
-    const votes = council?.seats.filter(s => s.vote !== undefined).length ?? 0
-    const sitting = council !== null && council.status !== 'verdict' && council.status !== 'failed'
-    const needsVerdict = council?.verdict?.needsYou === true && council.status === 'verdict'
-    const mine = wall.filter(t => t.status === 'In Progress').length
     const pct = Math.round(usage.context.percent ?? 0)
-    const last = [...list].reverse().find(x => x.kind === 'tool_call' || x.kind === 'prompt')
-    const live = agents.filter(a => a.status !== 'completed' && a.status !== 'killed').slice(0, 4)
-    const action = last ? (isPlainMode ? plain(last) : `${last.agent}: ${last.detail}`) : 'idle'
-    const room = Math.max(10, e.props.bodyColumns - 60 - live.length * 4)
+    const since = [...list].reverse().findIndex(x => x.kind === 'prompt')
+    const turnTools = (since < 0 ? list : list.slice(list.length - since)).filter(x => x.kind === 'tool_call').length
+    const last = [...list].reverse().find(x => x.kind === 'tool_call')
+    const leadBusy = last !== undefined && !last.isDone
+    const crew = [
+      { id: '', name: 'lead', status: e.props.isWorking || leadBusy ? 'running' : 'idle' },
+      ...agents
+        .filter(a => a.status !== 'completed' && a.status !== 'killed')
+        .slice(0, 3)
+        .map(a => ({ id: a.id, name: a.name ?? a.type, status: a.status as string })),
+    ]
+    const action = last ? (isPlainMode ? plain(last) : last.detail) : 'idle'
     const passed = gate.checks.filter(c => c.status === 'pass').length
     const failed = gate.checks.filter(c => c.status === 'fail').length
-    const ran = gate.checks.filter(c => c.status !== 'off').length
+    const warned = gate.checks.filter(c => c.status === 'warn').length
+    const open = wall.filter(t => t.status === 'In Progress' || t.status === 'In Review').length
+    const votes = council && council.status !== 'verdict' ? `${council.seats.filter(s => s.vote).length}/${council.size}` : undefined
+    const room = Math.max(12, e.props.bodyColumns - 70 - crew.length * 4)
 
     const ours = (
-      <Box flexDirection="column">
-        <Box flexDirection="row">
-          <Text color="claude">◆ </Text>
-          {live.map((a, i) => (
-            <Button key={`agent-${a.id}`} plain hotkey={String(i + 1)} onPress={() => $.ui.view({ agentId: a.id }).then(() => {})}>
-              {GLYPH[a.status] ?? '?'} {(a.name ?? a.type).slice(0, 8)}
-            </Button>
-          ))}
-          <Text color={ctxColor(pct)}> {isPlainMode ? 'memory' : 'ctx'} {pct}%</Text>
-          <Text dimColor> · {usd(usage.cost?.usd)} · </Text>
-          <Text>{clip(action, room)}</Text>
-          {edits.files > 0 && (
-            <Text dimColor>
-              {' '}· <Text color="diffAdded">+{edits.added}</Text> <Text color="diffRemoved">−{edits.removed}</Text>
+      <Box flexDirection="row">
+        {crew.map((a, i) => (
+          <Button key={`agent-${a.id || 'lead'}`} plain hotkey={String(i + 1)} onPress={() => (a.id ? $.ui.view({ agentId: a.id }) : $.ui.view({})).then(() => {})}>
+            <Text color={COL.dim}>{i + 1} </Text>
+            <Text color={STATUS[a.status] ?? COL.dim}>{GLYPHS[i]} </Text>
+            <Text color={COL.fg}>{a.name.slice(0, 8)} </Text>
+          </Button>
+        ))}
+        <Text color={COL.dim}> ctx </Text>
+        <Text color={pct >= 90 ? COL.red : pct >= 70 ? COL.accL : COL.sage}>{meter(pct, 6)}</Text>
+        <Text color={COL.fg}> {pct}% </Text>
+        <Text color={COL.fg}>{usd(usage.cost?.usd)} </Text>
+        <Text color={COL.acc}>⏺ </Text>
+        <Text color={COL.fg}>{clip(action, room)}</Text>
+        {edits.files > 0 && (
+          <Text>
+            {' '}
+            <Text color={COL.sage}>+{edits.added}</Text> <Text color={COL.red}>−{edits.removed}</Text>
+          </Text>
+        )}
+        <Text color={COL.dim}> ·{turnTools} </Text>
+        {waiting > 0 && (
+          <Text backgroundColor="#d67f48" color={COL.ink}>
+            {' '}⚑ {waiting}{' '}
+          </Text>
+        )}
+        {votes && <Text color={COL.accL}> {votes} </Text>}
+        {gate.checks.length > 0 && (
+          <Button key="gate" plain onPress={() => openHub($, 'quality').then(() => {})}>
+            <Text backgroundColor={failed ? COL.red : warned ? COL.accL : COL.sage} color={COL.ink}>
+              {' '}gate {passed}/{gate.checks.length}{' '}
             </Text>
-          )}
-          {waiting > 0 && <Text color="permission"> · ⚑ {waiting}</Text>}
-          {ran > 0 && (
-            <Button key="gate" plain onPress={() => openHub($, 'quality').then(() => {})}>
-              <Text color={failed ? 'error' : 'success'}> gate {passed}/{ran}</Text>
-            </Button>
-          )}
-          {mine > 0 && (
-            <Button key="tickets" plain onPress={() => openHub($, 'tickets').then(() => {})}>
-              <Text dimColor> ▤ {mine}</Text>
-            </Button>
-          )}
-        </Box>
-        {(sitting || needsVerdict) && e.props.maxRows > 1 && (
-          <Box flexDirection="row">
-            <Button key="council" plain hotkey="5" onPress={() => openHub($, 'council').then(() => {})}>
-              <Text color={needsVerdict ? 'warning' : 'suggestion'}>
-                ◇ Council {council.size}: {clip(council.question, 50)} · {sitting ? `${votes}/${council.size} votes` : `${council.verdict?.chosen} leads ${council.verdict?.split}, needs you`} · press 5
-              </Text>
-            </Button>
-          </Box>
+          </Button>
+        )}
+        {open > 0 && (
+          <Button key="tickets" plain onPress={() => openHub($, 'tickets').then(() => {})}>
+            <Text color={COL.dim}> ▤ {open} tickets</Text>
+          </Button>
         )}
       </Box>
     )
