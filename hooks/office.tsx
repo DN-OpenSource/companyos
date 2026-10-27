@@ -67,19 +67,19 @@ function put(g: Grid, x: number, y: number, ch: string, fg: number, bg?: number)
 function write(g: Grid, x: number, y: number, s: string, fg: number, bg?: number) {
   ;[...s].forEach((ch, i) => put(g, x + i, y, ch.charCodeAt(0) < 0x20 || ch.charCodeAt(0) > 0x7e ? '?' : ch, fg, bg))
 }
-function room(g: Grid, t: Theme, x: number, y: number, w: number, h: number, label: string) {
+function room(g: Grid, t: Theme, x: number, y: number, w: number, rh: number, label: string) {
   for (let i = x; i < x + w; i++) {
     put(g, i, y, '─', t.wall)
-    put(g, i, y + h - 1, '─', t.wall)
+    put(g, i, y + rh - 1, '─', t.wall)
   }
-  for (let j = y; j < y + h; j++) {
+  for (let j = y; j < y + rh; j++) {
     put(g, x, j, '│', t.wall)
     put(g, x + w - 1, j, '│', t.wall)
   }
   put(g, x, y, '┌', t.wall)
   put(g, x + w - 1, y, '┐', t.wall)
-  put(g, x, y + h - 1, '└', t.wall)
-  put(g, x + w - 1, y + h - 1, '┘', t.wall)
+  put(g, x, y + rh - 1, '└', t.wall)
+  put(g, x + w - 1, y + rh - 1, '┘', t.wall)
   write(g, x + 2, y, label.slice(0, w - 4), t.accent)
 }
 

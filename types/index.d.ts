@@ -38,18 +38,21 @@ export type Ticket = {
   ts: number
 }
 
-// One file edit an agent made, with what the file held before and after.
+// A run of a file's lines: unchanged, or what an edit removed and added there.
+export type Segment = { eq: string[] } | { del: string[]; add: string[] }
+
+// One file edit an agent made, as segments, so each hunk can be shown and reverted alone.
 export type Change = {
   id: string
   ts: number
   agent: string
   file: string
-  before: string | null // null: too large to keep
-  after: string
+  segments: Segment[] // empty when the file was too large to keep
   isNew: boolean
+  isRevertible: boolean
   added: number
   removed: number
-  isReverted?: boolean
+  reverted: number[] // which changed runs are undone
 }
 
 export type Seat = {
