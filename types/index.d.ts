@@ -5,6 +5,10 @@ export type EventKind =
   | 'delegation'
   | 'compaction'
   | 'turn'
+  | 'identity'
+
+// The GitHub account a repo is bound to, kept in $.store under accounts/<repo root>.
+export type Binding = { login: string; email?: string }
 
 export type CosEvent = {
   id: string
