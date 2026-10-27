@@ -12,13 +12,13 @@ Requires Claude Code 2.1.287 or later (the mods API). Built and tested on 2.1.31
 | --- | --- | --- |
 | `/events` | | Live event feed: time, agent, kind, detail; failures in red |
 | `/telemetry` | | Context meter and compaction forecast, cost and rate limits, per-agent turns, per-skill loads and tokens, inherited skills, bloated tool results |
-| `/office [theme <name>]` | `@office` | Pixel office: rooms, agents at desks, server-room racks for context, skill library, ticket wall, memory corner, achievements |
+| `/office [floor \| wall \| replay [this\|<session id>] [speed] \| theme <name>]` | `@office` | Pixel office: rooms, agents at desks, server-room racks for context, skill library, ticket wall, memory corner, achievements; the 3D org-chart wall; an animated replay of this or a stored session |
 | `/council 3\|6\|9 <question> [A) … B) …]` | `@council` | A council votes in two rounds; vetoes, tie-breaks, verdict card with accept / override / re-run |
 | `/mem [remember [--global] <text> \| forget <id> \| pin <id> \| prune \| export]` | `@mem` | Long-term memory, injected into each conversation's first message |
 | `/graph [agents\|skills\|files\|memory\|decisions\|cost]` | | The relation as a Mermaid graph, copyable |
 | `/ticket [jira\|notion\|linear] start\|move\|done\|block\|add <KEY> …`, `/ticket sync`, `/ticket wall` | `@jira`, `@notion`, `@linear` | Work tickets through your connected tracker; the wall stays in sync |
 | `/account [bind <login> [email] \| unbind \| switch <login>]` | `@gh` | GitHub identity bound per repo |
-| `/diff [revert <id>]` | | Every edit this session by agent, as a diff, with a revert that tells the agent why |
+| `/diff [revert <id> [hunk]]` | | Every edit this session by agent, hunk by hunk, each with its own revert that tells the agent why |
 | `/checkpoint [label] \| list \| restore <id>` | | Snapshot the workspace with `git stash create` (nothing in the tree moves); restore after a yes |
 | `/replay` | | Save the session (messages and events) as `.companyos/replay-<session>.json` |
 | `/handover` | | Write a handover note for a colleague, technical and plain |
@@ -94,10 +94,7 @@ One file per feature under `hooks/`, wired in `hooks/register.tsx`; the `$.state
   `cc-plugin-sec-default`) passes that event on past the person's mods, the library, per-skill stats, skill graph
   and inherited-skill tracing stay empty.
 
-These can't be done from inside a mod, or haven't been built yet:
+These can't be done from inside a mod:
 
 - Switching Anthropic accounts. No mods API does it; `/account` shows which account is signed in.
-- Revert works per edit (one Edit or Write call), not per hunk within it.
-- `/replay` saves the session to a file; the office does not animate a replay.
-- The 3D "org chart" graph wall in the office.
 - Tracker calls through `$.mcp`. Tickets go through Claude's own connected tools instead (see How tickets sync).

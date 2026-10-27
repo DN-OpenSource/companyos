@@ -51,6 +51,9 @@ const STATUS_COLOR: Record<string, number> = {
 const theme = atom({ plugin: 'companyos', key: 'theme' } as const, '')
 const tick = atom({ plugin: 'companyos', key: 'tick' } as const, 0)
 const weather = atom({ plugin: 'companyos', key: 'weather' } as const, 'unknown')
+// What the pane shows: the live floor, the org-chart wall, or a replay of a session's events.
+const view = atom({ plugin: 'companyos', key: 'view' } as const, { kind: 'floor', speed: 4 })
+const TICKS = 1_000_000_000
 
 type Cell = [number, number, number]
 type Grid = Cell[]
@@ -188,6 +191,70 @@ function draw(w: World): Grid {
   return g
 }
 
+// Agents as a replay sees them: each delegation walks in, and its first finished turn walks it out.
+function replayAgents(events: CosEvent[]): AgentInfo[] {
+  const seen = new Map<string, AgentInfo>()
+  for (const x of events) {
+    const child = x.kind === 'delegation' ? x.detail.match(/→ ([^:]+):/)?.[1] : undefined
+    if (child) seen.set(child, { id: child, name: child, type: x.detail.split(' ')[0] ?? 'agent', description: x.detail, status: 'running' })
+    const mine = seen.get(x.agent)
+    if (mine && x.kind === 'turn') seen.set(x.agent, { ...mine, status: x.isError ? 'failed' : 'completed' })
+  }
+  return [...seen.values()]
+}
+
+const shade = (c: number, f: number) => ((Math.round(((c >> 16) & 255) * f) << 16) | (Math.round(((c >> 8) & 255) * f) << 8) | Math.round((c & 255) * f)) >>> 0
+
+// A box with a lit top and a shadowed side, so it reads as 3D in cells.
+function block(g: Grid, x: number, y: number, bw: number, label: string, face: number, ink: number) {
+  const dark = shade(face, 0.55)
+  const lit = shade(face, 1.25) & 0xffffff
+  for (let i = 1; i <= bw; i++) put(g, x + i, y, '▄', lit)
+  for (let j = 1; j <= 2; j++) {
+    for (let i = 0; i < bw; i++) put(g, x + i, y + j, ' ', ink, face)
+    put(g, x + bw, y + j, '▐', dark)
+  }
+  for (let i = 1; i <= bw; i++) put(g, x + i, y + 3, '▀', dark)
+  write(g, x + 1, y + 1, label.slice(0, bw - 2), ink, face)
+}
+
+// The org chart on the wall: the lead on top, the agents it delegated to below, the skills each used under it.
+function drawWall(t: Theme, events: CosEvent[], agents: AgentInfo[]): Grid {
+  const g = blank(t)
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if ((x + y) % 7 === 0) put(g, x, y, '·', t.wall)
+  write(g, 2, 0, 'org chart wall', t.accent)
+  const tokensOf = (agent: string) =>
+    events.filter(x => x.agent === agent && x.kind === 'turn').reduce((n, x) => n + (x.tokensIn ?? 0) + (x.tokensOut ?? 0), 0)
+  const kids = [
+    ...new Set([...events.filter(x => x.kind === 'delegation').map(x => x.detail.match(/→ ([^:]+):/)?.[1] ?? ''), ...agents.map(a => a.name ?? a.id)]),
+  ]
+    .filter(Boolean)
+    .slice(0, 6)
+  const lx = Math.floor(W / 2) - 6
+  block(g, lx, 2, 12, `lead ${Math.round(tokensOf('lead') / 1000)}k`, t.accent, t.floor)
+  if (kids.length === 0) {
+    write(g, lx - 4, 8, 'nobody delegated to yet', t.text)
+    return g
+  }
+  const slot = Math.floor((W - 2) / kids.length)
+  const first = 1 + Math.floor(slot / 2)
+  for (let x = first; x <= first + slot * (kids.length - 1); x++) put(g, x, 7, '─', t.wall)
+  put(g, lx + 6, 6, '│', t.wall)
+  kids.forEach((kid, i) => {
+    const cx = first + i * slot
+    put(g, cx, 7, '┬', t.wall)
+    put(g, cx, 8, '│', t.wall)
+    const a = agents.find(x => (x.name ?? x.id) === kid)
+    const k = Math.round(tokensOf(kid) / 1000)
+    const bw = Math.max(8, Math.min(slot - 2, 8 + Math.round(Math.log2(1 + k))))
+    block(g, cx - Math.floor(bw / 2), 9, bw, `${kid} ${k}k`, STATUS_COLOR[a?.status ?? 'completed'] ?? t.desk, 0x101010)
+    const skills = [...new Set(events.filter(x => x.kind === 'skill_load' && x.agent === kid).map(x => skillOf(x.detail)))].slice(0, 3)
+    skills.forEach((sk, j) => write(g, cx - Math.floor(bw / 2), 14 + j, `|${sk}`.slice(0, slot - 1), t.desk))
+  })
+  write(g, 2, H - 1, `${kids.length} agents - box width is tokens, colour is status`, t.text)
+  return g
+}
+
 function cellsOf(g: Grid): string {
   const words = new Uint32Array(g.length * 3)
   g.forEach(([cp, fg, bg], i) => words.set([cp, fg, bg], i * 3))
@@ -243,26 +310,36 @@ export async function officeCommand($: EngineInterface, args: string, isLowPower
     await update($, theme, () => name)
     return `Office theme: ${name}.`
   }
+  const frame = await read($, tick)
+  if (verb === 'wall' || verb === 'floor' || verb === 'live') {
+    await update($, view, v => ({ kind: verb === 'wall' ? ('wall' as const) : ('floor' as const), speed: v.speed }))
+  }
+  if (verb === 'replay') {
+    const speed = Number(args.trim().split(/\s+/)[2] ?? 4) || 4
+    await update($, view, () => ({ kind: 'replay' as const, ...(name && name !== 'this' ? { session: name } : {}), from: frame, speed }))
+  }
   const opened = await $.ui.open({ id: OFFICE, title: 'CompanyOS · office' })
   if (opened.isPlaced) await checkWeather($)
-  if (opened.isPlaced && !isLowPower) {
+  // A replay needs the clock even in low-power mode.
+  if (opened.isPlaced && (!isLowPower || verb === 'replay')) {
     // Walking and typing tick twice a second, and stop once the pane is closed.
     const timer = $.clock.every(500, () => {
       void $.ui.panes().then(panes =>
         panes.some(p => p.id === OFFICE)
-          ? update($, tick, n => (n + 1) % 1000).then(n => (n % 600 === 0 ? checkWeather($) : undefined))
+          ? update($, tick, n => (n + 1) % TICKS).then(n => (n % 600 === 0 ? checkWeather($) : undefined))
           : timer.cancel(),
       )
     })
   }
-  return opened.isPlaced ? 'Office open.' : `Office waits: ${opened.reason}`
+  if (!opened.isPlaced) return `Office waits: ${opened.reason}`
+  return verb === 'replay' ? 'Replaying the session in the office.' : verb === 'wall' ? 'Org chart wall.' : 'Office open.'
 }
 
 export function office(on: On, defaultTheme: string, isLowPower: boolean) {
   on('command.run', { command: 'office' }, async ($, e) => ({ text: await officeCommand($, e.args, isLowPower) }))
 
   on('ui.render', { component: 'Pane', requestId: OFFICE }, async ($, e) => {
-    const [picked, frame, sky, agents, events, usage, council, memories, wall, isPlainMode, now] = await Promise.all([
+    const [picked, frame, sky, liveAgents, liveEvents, usage, liveCouncil, memories, wall, isPlainMode, now, shown] = await Promise.all([
       read($, theme),
       read($, tick),
       read($, weather),
@@ -274,10 +351,28 @@ export function office(on: On, defaultTheme: string, isLowPower: boolean) {
       tickets($),
       isPlain($),
       $.clock.now(),
+      read($, view),
     ])
     const themes = await loadThemes($)
     const t = themes[picked || defaultTheme] ?? LOFT
-    const grid = draw({ t, agents, events, pct: usage.context.percent ?? 0, council, memories, wall, frame, hour: new Date(now).getHours(), weather: sky })
+
+    // A replay walks a session's events forward `speed` per half-second tick.
+    const isReplay = shown.kind === 'replay'
+    const source = isReplay && shown.session ? (((await $.store.get(`events/${shown.session}`)) as CosEvent[] | undefined) ?? []) : liveEvents
+    const cursor = isReplay ? Math.min(source.length, ((frame - (shown.from ?? frame) + TICKS) % TICKS) * shown.speed) : source.length
+    const events = source.slice(0, cursor)
+    const agents = isReplay ? replayAgents(events) : liveAgents
+    const council = isReplay ? null : liveCouncil
+    const at = events.at(-1)
+    const hour = new Date(isReplay && at ? at.ts : now).getHours()
+    const grid =
+      shown.kind === 'wall'
+        ? drawWall(t, events, agents)
+        : draw({ t, agents, events, pct: isReplay ? 0 : (usage.context.percent ?? 0), council, memories, wall, frame, hour, weather: isReplay ? 'unknown' : sky })
+    if (isReplay) {
+      const clock = at ? new Date(at.ts).toTimeString().slice(0, 8) : '--:--:--'
+      write(grid, 2, 0, ` REPLAY ${clock} ${cursor}/${source.length}${cursor >= source.length ? ' done' : ''} `, 0x000000, 0xffeb3b)
+    }
     const last = new Map<string, CosEvent>()
     for (const x of events) if (x.kind === 'tool_call') last.set(x.agent, x)
     const bubbles = [...last].slice(-6)
@@ -296,10 +391,33 @@ export function office(on: On, defaultTheme: string, isLowPower: boolean) {
             return <Svg source={svgOf(grid, t)} alt="The office: rooms, agents at desks, context racks, skill library and ticket wall" />
           })()
 
-    const { Box, Text } = $.ui.resolve(e)
+    const { Box, Button, Text } = $.ui.resolve(e)
+    const go = (args: string) => () => officeCommand($, args, isLowPower).then(() => {})
     return (
       <Box flexDirection="column">
         {picture}
+        <Box flexDirection="row">
+          <Button key="view-floor" variant={shown.kind === 'floor' ? 'primary' : undefined} onPress={go('floor')}>
+            floor
+          </Button>
+          <Button key="view-wall" variant={shown.kind === 'wall' ? 'primary' : undefined} onPress={go('wall')}>
+            org chart wall
+          </Button>
+          <Button key="view-replay" variant={isReplay ? 'primary' : undefined} onPress={go('replay this 4')}>
+            {isReplay ? 'replay again' : 'replay session'}
+          </Button>
+        </Box>
+        {isReplay && (
+          <Text color="warning">
+            Replaying {cursor}/{source.length} events{cursor >= source.length ? ', done' : ''}
+            {at ? ` · now at ${new Date(at.ts).toTimeString().slice(0, 8)}` : ''}
+          </Text>
+        )}
+        {shown.kind === 'wall' && (
+          <Text>
+            Org chart: lead → {agents.map(a => `${a.name ?? a.id} (${a.status})`).join(', ') || 'nobody yet'}
+          </Text>
+        )}
         {bubbles.map(([agent, x]) => (
           <Text>
             💬 {clip(isPlainMode ? plain(x) : `${agent}: ${x.detail}`, width - 3)}

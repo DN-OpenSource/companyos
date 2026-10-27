@@ -55,6 +55,9 @@ export type Change = {
   reverted: number[] // which changed runs are undone
 }
 
+// What the office pane shows; a replay walks a stored session (or this one) from tick `from`.
+export type OfficeView = { kind: 'floor' | 'wall' | 'replay'; session?: string; from?: number; speed: number }
+
 export type Seat = {
   role: string
   vote?: string // an option letter, 'abstain' or 'veto'
@@ -109,6 +112,7 @@ declare module 'claude-code' {
       theme: string
       tick: number
       weather: string
+      view: OfficeView
       changes: Shaped<Change[]>
     }
   }
