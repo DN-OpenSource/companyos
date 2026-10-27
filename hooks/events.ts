@@ -35,7 +35,13 @@ export async function readEvents($: EngineInterface): Promise<CosEvent[]> {
   return read($, events)
 }
 
+const KEEP_SESSIONS = 20
+
+// One key per session, the oldest sessions rolled off so the shared 4 MiB store never fills.
 export async function flush($: EngineInterface) {
-  // ponytail: one key per session, overwritten; daily roll-ups when $.store nears 4 MiB
   await $.store.set(`events/${await $.session.id()}`, await read($, events))
+  const keys = (await $.store.keys()).filter(k => k.startsWith('events/'))
+  if (keys.length <= KEEP_SESSIONS) return
+  const last = await Promise.all(keys.map(async k => ({ k, ts: ((await $.store.get(k)) as CosEvent[] | undefined)?.at(-1)?.ts ?? 0 })))
+  for (const { k } of last.sort((a, b) => a.ts - b.ts).slice(0, keys.length - KEEP_SESSIONS)) await $.store.delete(k)
 }

@@ -40,18 +40,21 @@ Requires Claude Code 2.1.287 or later (the mods API). Built and tested on 2.1.31
 - **Risky commands** (`rm -rf`, force push, `reset --hard`, `git clean -f`, discarding work, destructive SQL)
   and **edits to protected paths** ask you first: allow once, deny, or hand it to a council of 3.
 
+If a guard itself breaks, it denies rather than lets things through: a bug there blocks Bash until the mod
+reloads. Turn the mod off in `/plugin` to get out.
+
 ## Settings (`/config`, or `pluginConfigs.companyos` in settings)
 
 | Field | Default | |
 | --- | --- | --- |
-| `protectedPaths` | `.env` | Comma-separated path fragments no agent edits without your yes |
+| `protectedPaths` | `.env` | Comma-separated path fragments no agent edits without your yes; matched anywhere in the path, so `.env` also catches `.env.example` and `.envrc` |
 | `costCapUsd` | `0` | Toast once a session costs more; 0 is off |
 | `theme` | `loft` | `loft`, `tower`, `cubicles`, `garage`, `space` |
 | `lowPower` | `false` | No office animation |
 
 ## Where data lives
 
-All local. The mod's store (`$.store`, shared by this machine's sessions) holds `events/<session>` (last 500),
+All local. The mod's store (`$.store`, shared by this machine's sessions) holds `events/<session>` (last 500 per session, last 20 sessions),
 `memory/entries`, `decisions/<id>`, `tickets/<repo>` and `accounts/<repo>`. `/daily` and `/report` write to
 `.companyos/` in the working directory; add it to `.gitignore` if you don't want it committed.
 
@@ -74,6 +77,10 @@ tsc -p ./companyos
 One file per feature under `hooks/`, wired in `hooks/register.tsx`; the `$.state` contract is `types/index.d.ts`.
 
 ## Not in the mod
+
+- Skill tracking needs `skill.prompt` to reach the mod. Where an organization plugin above it (for example
+  `cc-plugin-sec-default`) passes that event on past the person's mods, the library, per-skill stats, skill graph
+  and inherited-skill tracing stay empty.
 
 These can't be done from inside a mod, or haven't been built yet:
 

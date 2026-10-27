@@ -2,7 +2,8 @@
 
 export const clip = (s: string, n = 160) => (s.length > n ? s.slice(0, Math.max(0, n - 1)) + '…' : s)
 
-export const time = (ts: number) => new Date(ts).toISOString().slice(11, 19)
+// Local wall-clock time, as the person reads it.
+export const time = (ts: number) => new Date(ts).toTimeString().slice(0, 8)
 
 export const day = (ts: number) => new Date(ts).toISOString().slice(0, 10)
 
