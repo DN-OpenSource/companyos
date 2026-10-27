@@ -3,6 +3,8 @@ import type { Register } from 'claude-code'
 import { accounts } from './accounts'
 import { band } from './band'
 import { councils } from './council'
+import { diffs } from './diff'
+import { setWebhook } from './events'
 import { feed } from './feed'
 import { graph } from './graph'
 import { guard } from './guard'
@@ -10,6 +12,7 @@ import { memory } from './memory'
 import { modes } from './mode'
 import { office } from './office'
 import { reports } from './reports'
+import { sessions } from './sessions'
 import { router } from './router'
 import { stats } from './stats'
 import { TICKET_TOOL, ticketing } from './tickets'
@@ -41,6 +44,10 @@ const COMMANDS = [
   { name: 'daily', description: "CompanyOS: write today's plain-language page and standup to .companyos/" },
   { name: 'report', description: 'CompanyOS: weekly report, or export events as CSV or JSON', argumentHint: '[week|csv|json]' },
   { name: 'office', description: 'CompanyOS: open the pixel office', argumentHint: '[theme loft|tower|cubicles|garage|space]' },
+  { name: 'diff', description: 'CompanyOS: every edit this session, by agent, with revert', argumentHint: '[revert <id>]' },
+  { name: 'checkpoint', description: 'CompanyOS: snapshot the workspace, list snapshots, or restore one', argumentHint: '[label] | list | restore <id>' },
+  { name: 'replay', description: 'CompanyOS: save this session as a replay file in .companyos/' },
+  { name: 'handover', description: 'CompanyOS: write a handover note for a colleague to continue this session' },
   {
     name: 'account',
     description: 'CompanyOS: show, bind or switch the GitHub account for this repo',
@@ -49,6 +56,8 @@ const COMMANDS = [
 ]
 
 export const register: Register = (on, options) => {
+  setWebhook(String(options.webhookUrl ?? ''))
+
   // One session.start for the whole mod: the engine takes one unmatched hook per event.
   on('session.start', async ($, e, next) => {
     // One refused name (a built-in, another plugin's) must not cost the rest their registration.
@@ -91,5 +100,7 @@ export const register: Register = (on, options) => {
   ticketing(on)
   modes(on)
   reports(on)
+  diffs(on)
+  sessions(on)
   office(on, String(options.theme ?? 'loft'), options.lowPower === true)
 }

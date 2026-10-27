@@ -38,6 +38,20 @@ export type Ticket = {
   ts: number
 }
 
+// One file edit an agent made, with what the file held before and after.
+export type Change = {
+  id: string
+  ts: number
+  agent: string
+  file: string
+  before: string | null // null: too large to keep
+  after: string
+  isNew: boolean
+  added: number
+  removed: number
+  isReverted?: boolean
+}
+
 export type Seat = {
   role: string
   vote?: string // an option letter, 'abstain' or 'veto'
@@ -91,6 +105,8 @@ declare module 'claude-code' {
       mode: string
       theme: string
       tick: number
+      weather: string
+      changes: Shaped<Change[]>
     }
   }
 }

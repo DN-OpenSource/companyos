@@ -18,6 +18,10 @@ Requires Claude Code 2.1.287 or later (the mods API). Built and tested on 2.1.31
 | `/graph [agents\|skills\|files\|memory\|decisions\|cost]` | | The relation as a Mermaid graph, copyable |
 | `/ticket [jira\|notion\|linear] start\|move\|done\|block\|add <KEY> …`, `/ticket sync`, `/ticket wall` | `@jira`, `@notion`, `@linear` | Work tickets through your connected tracker; the wall stays in sync |
 | `/account [bind <login> [email] \| unbind \| switch <login>]` | `@gh` | GitHub identity bound per repo |
+| `/diff [revert <id>]` | | Every edit this session by agent, as a diff, with a revert that tells the agent why |
+| `/checkpoint [label] \| list \| restore <id>` | | Snapshot the workspace with `git stash create` (nothing in the tree moves); restore after a yes |
+| `/replay` | | Save the session (messages and events) as `.companyos/replay-<session>.json` |
+| `/handover` | | Write a handover note for a colleague, technical and plain |
 | `/mode [plain\|technical]` | | Switch how every pane and the band read |
 | `/daily` | | Writes `.companyos/daily-<date>.md`: plain summary, standup, timeline |
 | `/report [week\|csv\|json]` | | Weekly report and decision digest, or every stored event as CSV or JSON |
@@ -30,6 +34,9 @@ Requires Claude Code 2.1.287 or later (the mods API). Built and tested on 2.1.31
   action, guard questions waiting on you, a sitting council's vote count, tickets in progress.
 - **Status line:** `CompanyOS · ctx 46% · $1.23 · gh:work` after each turn.
 - **Spinner:** `· 3 tools · 46% context` while Claude works.
+- **Edits:** `+42 −7 in 3 files` on the band while this session has unreverted edits.
+- **Autocomplete:** `@` suggests agents and the prefixes; after `start`, `move`, `done` or `block` it suggests ticket keys.
+- **Office weather:** sun when the repo's last CI run passed, storm when it failed (read with `gh run list`).
 
 ## Guards
 
@@ -51,11 +58,16 @@ reloads. Turn the mod off in `/plugin` to get out.
 | `costCapUsd` | `0` | Toast once a session costs more; 0 is off |
 | `theme` | `loft` | `loft`, `tower`, `cubicles`, `garage`, `space` |
 | `lowPower` | `false` | No office animation |
+| `webhookUrl` | empty | POST every event as JSON to this address |
+
+Themes are JSON files in `themes/` (`{ "floor", "wall", "desk", "accent", "text" }` as `#rrggbb`); drop one in
+and `@office theme <file name>` picks it.
 
 ## Where data lives
 
 All local. The mod's store (`$.store`, shared by this machine's sessions) holds `events/<session>` (last 500 per session, last 20 sessions),
-`memory/entries`, `decisions/<id>`, `tickets/<repo>` and `accounts/<repo>`. `/daily` and `/report` write to
+`memory/entries`, `decisions/<id>`, `tickets/<repo>`, `accounts/<repo>` and `checkpoints/<repo>`; checkpoints are also git refs
+under `refs/companyos/`. `/daily`, `/report`, `/replay` and `/handover` write to
 `.companyos/` in the working directory; add it to `.gitignore` if you don't want it committed.
 
 ## How tickets sync
@@ -84,8 +96,8 @@ One file per feature under `hooks/`, wired in `hooks/register.tsx`; the `$.state
 
 These can't be done from inside a mod, or haven't been built yet:
 
-- Phone approvals, the menu bar and the notch. A mod can't reach them; a companion app could read `$.store` later.
 - Switching Anthropic accounts. No mods API does it; `/account` shows which account is signed in.
-- Hunk-level accept/revert, workspace checkpoints, session replay and webhooks.
-- The CI-driven weather, sprite-pack files and the 3D graph wall.
+- Revert works per edit (one Edit or Write call), not per hunk within it.
+- `/replay` saves the session to a file; the office does not animate a replay.
+- The 3D "org chart" graph wall in the office.
 - Tracker calls through `$.mcp`. Tickets go through Claude's own connected tools instead (see How tickets sync).

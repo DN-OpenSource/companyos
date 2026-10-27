@@ -12,6 +12,13 @@ const events = atom({ plugin: 'companyos', key: 'events' } as const, [], {
 })
 
 
+// Where every event is also POSTed as JSON; empty for none (userConfig webhookUrl).
+let webhook = ''
+
+export function setWebhook(url: string) {
+  webhook = /^https?:\/\//.test(url) ? url : ''
+}
+
 export async function log(
   $: EngineInterface,
   kind: EventKind,
@@ -23,6 +30,15 @@ export async function log(
   const id = `evt_${ts.toString(36)}${Math.random().toString(36).slice(2, 6)}`
   const evt: CosEvent = { id, ts, agent: agent ?? 'lead', kind, detail: clip(detail), ...extra }
   await update($, events, list => [...list, evt].slice(-MAX))
+  if (webhook) {
+    // Fire and forget: a slow or dead endpoint never holds up the session.
+    void $.http
+      .fetch(webhook, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ source: 'companyos', ...evt }) })
+      .then(
+        () => {},
+        () => {},
+      )
+  }
   return id
 }
 

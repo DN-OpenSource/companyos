@@ -2,6 +2,7 @@ import type { EngineInterface, On } from 'claude-code'
 
 import { log } from './events'
 import { memoryBlock, memoryCommand, needsMemory } from './memory'
+import { tickets } from './tickets'
 import { clip } from './util'
 
 // Prefixes that become a command of the mod: `@council 6 …` runs `/council 6 …`.
@@ -76,5 +77,25 @@ export function router(on: On) {
       ...(lower === '@lead' ? { text: args } : {}),
       ...(memo ? { context: [...(e.context ?? []), memo] } : {}),
     })
+  })
+
+  // Suggest agents and prefixes after @, and ticket keys after a ticket verb.
+  on('prompt.autocomplete', async ($, e, next) => {
+    const theirs = await next(e)
+    const token = e.token
+    const before = e.text.slice(0, e.start).trim().split(/\s+/)
+    let mine: { text: string; description?: string }[] = []
+    if (token.startsWith('@')) {
+      const agents = (await $.agent.list()).filter(a => a.status !== 'completed' && a.status !== 'killed')
+      mine = [
+        ...['@lead', '@all', '@council', '@jira', '@notion', '@linear', '@gh', '@mem', '@office'].map(p => ({ text: p, description: 'CompanyOS' })),
+        ...agents.map(a => ({ text: `@${a.name ?? a.id}`, description: `${a.type}: ${a.description}` })),
+      ].filter(x => x.text.toLowerCase().startsWith(token.toLowerCase()))
+    } else if (['start', 'move', 'done', 'block'].includes(before.at(-1) ?? '')) {
+      mine = (await tickets($))
+        .filter(t => t.key.toLowerCase().startsWith(token.toLowerCase()))
+        .map(t => ({ text: t.key, description: `${t.status} · ${t.title}` }))
+    }
+    return mine.length ? { suggestions: [...mine.slice(0, 10), ...theirs.suggestions] } : theirs
   })
 }

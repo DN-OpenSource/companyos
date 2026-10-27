@@ -2,6 +2,7 @@ import type { On } from 'claude-code'
 
 import { statusLine } from './accounts'
 import { flush, log, mark, readEvents } from './events'
+import { recordEdit } from './diff'
 import { isPlain, plain } from './mode'
 import { argOf, clip, skillOf, time, usd } from './util'
 
@@ -16,7 +17,20 @@ export function feed(on: On, capUsd: number) {
 
   on('tool.call', async ($, e, next) => {
     const id = await log($, 'tool_call', e.agentId, `${String(e.tool)} ${argOf(e)}`.trim())
-    const ran = await next(e)
+    const path = (e as { file_path?: unknown }).file_path
+    const isFileEdit = typeof path === 'string' && ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(String(e.tool))
+    let ran: Awaited<ReturnType<typeof next>> | undefined
+    if (isFileEdit) {
+      try {
+        await recordEdit($, path, e.agentId, async () => {
+          ran = await next(e)
+          return ran.deny === undefined && ran.isError !== true
+        })
+      } catch {
+        // a failed recording never costs the edit itself
+      }
+    }
+    if (ran === undefined) ran = await next(e)
     await mark($, id, {
       isDone: true,
       isError: ran.deny !== undefined || ran.isError === true,

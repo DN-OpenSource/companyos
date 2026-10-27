@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { AgentInfo, EngineInterface, On } from 'claude-code'
 
 import type { Council, CosEvent, MemoryEntry } from '../types'
+import { run } from './accounts'
 import { readCouncil } from './council'
 import { readEvents } from './events'
 import { entries } from './memory'
@@ -15,15 +16,27 @@ const H = 22
 const DEFAULT = 0x01000000
 
 type Theme = { floor: number; wall: number; desk: number; accent: number; text: number }
-// ponytail: themes inline; a JSON sprite-pack loader when someone ships a pack
-const THEMES: Record<string, Theme> = {
-  loft: { floor: 0x3b2f2a, wall: 0x8a5a44, desk: 0xc49a6c, accent: 0xf2c14e, text: 0xf5efe6 },
-  tower: { floor: 0x1f2933, wall: 0x52606d, desk: 0x9aa5b1, accent: 0x3ebd93, text: 0xf5f7fa },
-  cubicles: { floor: 0x4a4a3a, wall: 0x9c9a7a, desk: 0xd8d3b0, accent: 0xff6f59, text: 0xfffbe6 },
-  garage: { floor: 0x2b2b2b, wall: 0x6b4f3a, desk: 0x8f8f8f, accent: 0xe4572e, text: 0xeeeeee },
-  space: { floor: 0x0b1026, wall: 0x2e3a7a, desk: 0x5a6acf, accent: 0x9cf6f6, text: 0xe8ecff },
+const LOFT: Theme = { floor: 0x3b2f2a, wall: 0x8a5a44, desk: 0xc49a6c, accent: 0xf2c14e, text: 0xf5efe6 }
+
+// Themes are JSON files in the mod's themes/ folder ({ floor, wall, desk, accent, text } as #rrggbb): drop one in to add it.
+let themeCache: Record<string, Theme> | undefined
+
+async function loadThemes($: EngineInterface): Promise<Record<string, Theme>> {
+  if (themeCache) return themeCache
+  const found: Record<string, Theme> = { loft: LOFT }
+  try {
+    for (const f of await $.fs.list(`${$.plugin.root}/themes`)) {
+      if (!f.name.endsWith('.json')) continue
+      const raw = JSON.parse(await $.fs.read(`${$.plugin.root}/themes/${f.name}`)) as Record<string, string>
+      const rgb = (k: string, d: number) => (/^#[0-9a-f]{6}$/i.test(raw[k] ?? '') ? parseInt(raw[k]!.slice(1), 16) : d)
+      found[f.name.slice(0, -5)] = { floor: rgb('floor', LOFT.floor), wall: rgb('wall', LOFT.wall), desk: rgb('desk', LOFT.desk), accent: rgb('accent', LOFT.accent), text: rgb('text', LOFT.text) }
+    }
+  } catch {
+    // no themes folder: loft alone
+  }
+  themeCache = found
+  return found
 }
-export const THEME_NAMES = Object.keys(THEMES)
 
 const STATUS_COLOR: Record<string, number> = {
   running: 0x4caf50,
@@ -37,6 +50,7 @@ const STATUS_COLOR: Record<string, number> = {
 
 const theme = atom({ plugin: 'companyos', key: 'theme' } as const, '')
 const tick = atom({ plugin: 'companyos', key: 'tick' } as const, 0)
+const weather = atom({ plugin: 'companyos', key: 'weather' } as const, 'unknown')
 
 type Cell = [number, number, number]
 type Grid = Cell[]
@@ -81,14 +95,17 @@ type World = {
   wall: { key: string; status: string; agent?: string }[]
   frame: number
   hour: number
+  weather: string
 }
 
 function draw(w: World): Grid {
   const { t } = w
   const g = blank(t)
   const night = w.hour < 7 || w.hour >= 19
-  // Day–night: the windows along the top wall.
-  for (let x = 1; x < W - 1; x += 6) put(g, x, 0, '▀', night ? 0x1a237e : 0x81d4fa)
+  // Day–night and CI weather through the windows along the top wall: sun when the last run passed, storm when it failed.
+  const sky = w.weather === 'storm' ? 0x546e7a : night ? 0x1a237e : 0x81d4fa
+  for (let x = 1; x < W - 1; x += 6) put(g, x, 0, w.weather === 'storm' && (x + w.frame) % 2 ? '/' : '▀', w.weather === 'storm' ? 0xb0bec5 : sky, w.weather === 'storm' ? sky : undefined)
+  if (w.weather === 'sun') put(g, W - 3, 0, '*', 0xffeb3b)
 
   room(g, t, 0, 1, 16, 6, 'corner office')
   put(g, 7, 4, '@', 0x29b6f6) // you
@@ -209,19 +226,32 @@ function achievements(list: CosEvent[], council: Council | null): Achievement[] 
   ]
 }
 
+// The repo's last CI run, read with gh: sun when it passed, storm when it failed.
+async function checkWeather($: EngineInterface) {
+  const root = (await $.session.repo())?.root
+  const out = root ? await run($, ['gh', 'run', 'list', '-L', '1', '--json', 'conclusion,status'], root) : undefined
+  const last = out ? ((JSON.parse(out) as { conclusion?: string; status?: string }[])[0] ?? {}) : {}
+  const sky = last.status && last.status !== 'completed' ? 'cloud' : last.conclusion === 'success' ? 'sun' : last.conclusion ? 'storm' : 'unknown'
+  await update($, weather, () => sky)
+}
+
 export async function officeCommand($: EngineInterface, args: string, isLowPower: boolean): Promise<string> {
   const [verb, name = ''] = args.trim().split(/\s+/)
   if (verb === 'theme') {
-    if (!THEMES[name]) return `Themes: ${THEME_NAMES.join(', ')}.`
+    const all = await loadThemes($)
+    if (!all[name]) return `Themes: ${Object.keys(all).join(', ')}.`
     await update($, theme, () => name)
     return `Office theme: ${name}.`
   }
   const opened = await $.ui.open({ id: OFFICE, title: 'CompanyOS · office' })
+  if (opened.isPlaced) await checkWeather($)
   if (opened.isPlaced && !isLowPower) {
     // Walking and typing tick twice a second, and stop once the pane is closed.
     const timer = $.clock.every(500, () => {
       void $.ui.panes().then(panes =>
-        panes.some(p => p.id === OFFICE) ? update($, tick, n => (n + 1) % 1000).then(() => {}) : timer.cancel(),
+        panes.some(p => p.id === OFFICE)
+          ? update($, tick, n => (n + 1) % 1000).then(n => (n % 600 === 0 ? checkWeather($) : undefined))
+          : timer.cancel(),
       )
     })
   }
@@ -232,9 +262,10 @@ export function office(on: On, defaultTheme: string, isLowPower: boolean) {
   on('command.run', { command: 'office' }, async ($, e) => ({ text: await officeCommand($, e.args, isLowPower) }))
 
   on('ui.render', { component: 'Pane', requestId: OFFICE }, async ($, e) => {
-    const [picked, frame, agents, events, usage, council, memories, wall, isPlainMode, now] = await Promise.all([
+    const [picked, frame, sky, agents, events, usage, council, memories, wall, isPlainMode, now] = await Promise.all([
       read($, theme),
       read($, tick),
+      read($, weather),
       $.agent.list(),
       readEvents($),
       $.session.usage(),
@@ -244,8 +275,9 @@ export function office(on: On, defaultTheme: string, isLowPower: boolean) {
       isPlain($),
       $.clock.now(),
     ])
-    const t = THEMES[picked || defaultTheme] ?? THEMES.loft!
-    const grid = draw({ t, agents, events, pct: usage.context.percent ?? 0, council, memories, wall, frame, hour: new Date(now).getHours() })
+    const themes = await loadThemes($)
+    const t = themes[picked || defaultTheme] ?? LOFT
+    const grid = draw({ t, agents, events, pct: usage.context.percent ?? 0, council, memories, wall, frame, hour: new Date(now).getHours(), weather: sky })
     const last = new Map<string, CosEvent>()
     for (const x of events) if (x.kind === 'tool_call') last.set(x.agent, x)
     const bubbles = [...last].slice(-6)

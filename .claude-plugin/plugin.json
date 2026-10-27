@@ -37,6 +37,12 @@
       "title": "Low-power mode",
       "description": "No office animation; the band and panes still update",
       "default": false
+    },
+    "webhookUrl": {
+      "type": "string",
+      "title": "Webhook URL",
+      "description": "POST every event as JSON to this http(s) address; empty for none",
+      "default": ""
     }
   }
 }

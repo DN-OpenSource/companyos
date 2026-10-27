@@ -1,6 +1,7 @@
 import type { On } from 'claude-code'
 
 import { readCouncil } from './council'
+import { diffTotals } from './diff'
 import { readEvents } from './events'
 import { isPlain, plain } from './mode'
 import { readPending } from './guard'
@@ -23,7 +24,7 @@ export function band(on: On) {
     if (e.props.hasSurvey || e.props.maxRows < 1) return next(e)
 
     const { Box, Button, Text } = $.ui.resolve(e)
-    const [list, usage, agents, waiting, council, wall, isPlainMode] = await Promise.all([
+    const [list, usage, agents, waiting, council, wall, isPlainMode, edits] = await Promise.all([
       readEvents($),
       $.session.usage(),
       $.agent.list(),
@@ -31,6 +32,7 @@ export function band(on: On) {
       readCouncil($),
       tickets($),
       isPlain($),
+      diffTotals($),
     ])
     const votes = council?.seats.filter(s => s.vote !== undefined).length ?? 0
     const sitting = council !== null && council.status !== 'verdict' && council.status !== 'failed'
@@ -53,6 +55,11 @@ export function band(on: On) {
           <Text color={ctxColor(pct)}> {isPlainMode ? 'memory' : 'ctx'} {pct}%</Text>
           <Text dimColor> · {usd(usage.cost?.usd)} · </Text>
           <Text>{clip(action, room)}</Text>
+          {edits.files > 0 && (
+            <Text dimColor>
+              {' '}· <Text color="diffAdded">+{edits.added}</Text> <Text color="diffRemoved">−{edits.removed}</Text> in {edits.files} files
+            </Text>
+          )}
           {waiting > 0 && <Text color="permission"> · ⚠ {waiting} waiting on you</Text>}
           {sitting && (
             <Text color="suggestion">
