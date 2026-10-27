@@ -39,7 +39,7 @@ const COMMANDS = [
   {
     name: 'ticket',
     description: 'CompanyOS: work tickets from Jira, Notion or Linear and keep the wall in sync',
-    argumentHint: '[jira|notion|linear] start|move|done|block|add <KEY> … | sync | wall',
+    argumentHint: '[jira|notion|linear] start|move|done|block|add|remove <KEY> … | sync | wall',
   },
   { name: 'mode', description: 'CompanyOS: switch between technical and plain-language rendering', argumentHint: '[plain|technical]' },
   { name: 'daily', description: "CompanyOS: write today's plain-language page and standup to .companyos/" },
@@ -102,6 +102,7 @@ export const register: Register = (on, options) => {
           status: { type: 'string', enum: ['To Do', 'In Progress', 'In Review', 'Blocked', 'Done'] },
           requirement: { type: 'string', description: 'Requirement ID from a BRD, when the ticket names one' },
           note: { type: 'string', description: 'Why it is blocked, or a one-line progress note' },
+          remove: { type: 'boolean', description: 'True takes the ticket off the wall (the tracker keeps it)' },
         },
         required: ['key'],
       },

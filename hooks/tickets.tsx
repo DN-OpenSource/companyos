@@ -18,6 +18,16 @@ export async function tickets($: EngineInterface): Promise<Ticket[]> {
   return ((await $.store.get(await storeKey($))) as Ticket[] | undefined) ?? []
 }
 
+// Takes a ticket off the wall only; the tracker keeps it.
+async function remove($: EngineInterface, key: string): Promise<boolean> {
+  const list = await tickets($)
+  if (!list.some(t => t.key === key)) return false
+  await $.store.set(await storeKey($), list.filter(t => t.key !== key))
+  await log($, 'ticket_update', undefined, `${key} taken off the wall`)
+  $.ui.invalidate('ui.render')
+  return true
+}
+
 async function upsert($: EngineInterface, patch: Partial<Ticket> & { key: string }) {
   const list = await tickets($)
   const old = list.find(t => t.key === patch.key)
@@ -59,10 +69,11 @@ export async function ticketCommand($: EngineInterface, args: string): Promise<s
     })
     return 'Asked Claude to sync the wall.'
   }
-  if (!KEY.test(key)) return 'Usage: /ticket [jira|notion|linear] start|move|done|block|add <KEY> [status|title|reason] · /ticket sync · /ticket wall'
+  if (!KEY.test(key)) return 'Usage: /ticket [jira|notion|linear] start|move|done|block|add|remove <KEY> [status|title|reason] · /ticket sync · /ticket wall'
   const old = (await tickets($)).find(t => t.key === key)
   const from = source ?? old?.source ?? 'jira'
 
+  if (verb === 'remove') return (await remove($, key)) ? `Took ${key} off the wall.` : `${key} is not on the wall.`
   if (verb === 'add') return `Added ${(await upsert($, { key, source: from, title: text || old?.title || '' })).key}.`
   if (verb === 'start') {
     const t = await upsert($, { key, source: from, status: 'In Progress', title: text || old?.title || '', agent: 'lead' })
@@ -86,6 +97,9 @@ export function ticketing(on: On) {
   on('tool.call', { tool: /^mcp__companyos__ticket_update$/ }, async ($, e) => {
     const a = e as unknown as Partial<Ticket>
     if (typeof a.key !== 'string' || !a.key) return { deny: 'key is required' }
+    if ((e as unknown as { remove?: unknown }).remove === true) {
+      return { result: (await remove($, a.key)) ? `${a.key} is off the CompanyOS wall.` : `${a.key} was not on the wall.` }
+    }
     const status = COLUMNS.find(c => c.toLowerCase() === String(a.status ?? '').toLowerCase())
     const t = await upsert($, {
       key: a.key,

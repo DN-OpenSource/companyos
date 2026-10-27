@@ -16,7 +16,7 @@ Requires Claude Code 2.1.287 or later (the mods API). Built and tested on 2.1.31
 | `/council 3\|6\|9 <question> [A) … B) …]` | `@council` | A council votes in two rounds; vetoes, tie-breaks, verdict card with accept / override / re-run |
 | `/mem [remember [--global] <text> \| forget <id> \| pin <id> \| prune \| export]` | `@mem` | Long-term memory, injected into each conversation's first message |
 | `/graph [agents\|skills\|files\|memory\|decisions\|cost]` | | The relation as a Mermaid graph, copyable |
-| `/ticket [jira\|notion\|linear] start\|move\|done\|block\|add <KEY> …`, `/ticket sync`, `/ticket wall` | `@jira`, `@notion`, `@linear` | Work tickets through your connected tracker; the wall stays in sync |
+| `/ticket [jira\|notion\|linear] start\|move\|done\|block\|add\|remove <KEY> …`, `/ticket sync`, `/ticket wall` | `@jira`, `@notion`, `@linear` | Work tickets through your connected tracker; the wall stays in sync |
 | `/anthropic [add <name> <provider> [k=v…] \| use <name> \| route <agent type\|*> <model> \| unroute …]` | | Signed-in Claude account, rate-limit forecast, provider profiles (subscription, API, Bedrock, Vertex, gateway) applied to the next session, and per-agent model routes |
 | `/account [bind <login> [email] \| unbind \| switch <login>]` | `@gh` | GitHub identity bound per repo |
 | `/diff [revert <id> [hunk]]` | | Every edit this session by agent, hunk by hunk, each with its own revert that tells the agent why |
