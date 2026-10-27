@@ -26,6 +26,35 @@ export type MemoryEntry = {
   expires?: number
 }
 
+export type Seat = {
+  role: string
+  vote?: string // an option letter, 'abstain' or 'veto'
+  confidence?: number
+  reason?: string
+  change?: string
+}
+
+export type Verdict = {
+  chosen: string // the option's text, or 'blocked' / 'escalated'
+  split: string // '5–1'
+  dissent: string[]
+  changes: string[]
+  vetoedBy?: string
+  needsYou: boolean
+  plain: string
+}
+
+export type Council = {
+  id: string
+  question: string
+  options: string[]
+  size: number
+  status: 'round 1' | 'round 2' | 'verdict' | 'failed'
+  seats: Seat[]
+  verdict?: Verdict
+  tokens: number
+}
+
 export type CosEvent = {
   id: string
   ts: number
@@ -46,6 +75,7 @@ declare module 'claude-code' {
       events: Shaped<CosEvent[]>
       pending: number
       graph: string
+      council: Council | null
     }
   }
 }

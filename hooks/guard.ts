@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On, PluginOptions } from 'claude-code'
 
 import { identityProblem, run } from './accounts'
+import { convene } from './council'
 import { log } from './events'
 
 // How many guard questions wait on the person now; the band shows it.
@@ -24,11 +25,15 @@ const RISKY: [RegExp, string][] = [
 const SECRET =
   /(AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|sk-(ant-)?[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|AIza[0-9A-Za-z_-]{35})/
 
+// Allow, deny, or hand the call to a council of 3 that votes allow or deny.
 async function ask($: EngineInterface, question: string): Promise<boolean> {
   await update($, pending, n => n + 1)
   try {
-    const answer = await $.ui.ask(question, { header: 'CompanyOS', options: ['Allow once', 'Deny'] })
-    return answer === 'Allow once'
+    const answer = await $.ui.ask(question, { header: 'CompanyOS', options: ['Allow once', 'Deny', 'Ask a council of 3'] })
+    if (answer !== 'Ask a council of 3') return answer === 'Allow once'
+    const verdict = await convene($, 3, `${question}
+A) allow it B) deny it`)
+    return verdict.chosen === 'allow it' && !verdict.needsYou
   } finally {
     await update($, pending, n => Math.max(0, n - 1))
   }

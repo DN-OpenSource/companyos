@@ -2,6 +2,7 @@ import type { Register } from 'claude-code'
 
 import { accounts } from './accounts'
 import { band } from './band'
+import { councils } from './council'
 import { feed } from './feed'
 import { graph } from './graph'
 import { guard } from './guard'
@@ -21,6 +22,11 @@ const COMMANDS = [
     name: 'graph',
     description: 'CompanyOS: agents, skills, files, memory, decisions or cost as a graph',
     argumentHint: '[agents|skills|files|memory|decisions|cost]',
+  },
+  {
+    name: 'council',
+    description: 'CompanyOS: a council of 3, 6 or 9 agents votes on a question',
+    argumentHint: '3|6|9 <question> [A) option B) option …]',
   },
   {
     name: 'account',
@@ -44,4 +50,5 @@ export const register: Register = (on, options) => {
   memory(on)
   graph(on)
   router(on)
+  councils(on)
 }
