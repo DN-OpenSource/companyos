@@ -14,6 +14,18 @@ export type EventKind =
 // The GitHub account a repo is bound to, kept in $.store under accounts/<repo root>.
 export type Binding = { login: string; email?: string }
 
+// One long-term memory (the elephant), kept in $.store under memory/entries.
+export type MemoryEntry = {
+  id: string
+  text: string
+  source: 'you' | 'agent' | 'council' | 'ticket'
+  scope: string // 'global' or a repo root
+  ts: number
+  lastUsed: number
+  isPinned?: boolean
+  expires?: number
+}
+
 export type CosEvent = {
   id: string
   ts: number
@@ -33,6 +45,7 @@ declare module 'claude-code' {
     companyos: {
       events: Shaped<CosEvent[]>
       pending: number
+      graph: string
     }
   }
 }

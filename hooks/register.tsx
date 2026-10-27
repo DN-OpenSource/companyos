@@ -3,12 +3,25 @@ import type { Register } from 'claude-code'
 import { accounts } from './accounts'
 import { band } from './band'
 import { feed } from './feed'
+import { graph } from './graph'
 import { guard } from './guard'
+import { memory } from './memory'
+import { router } from './router'
 import { stats } from './stats'
 
 const COMMANDS = [
   { name: 'events', description: 'CompanyOS: show the live event feed' },
   { name: 'stats', description: 'CompanyOS: context, cost, agents and skills' },
+  {
+    name: 'mem',
+    description: 'CompanyOS: long-term memory',
+    argumentHint: '[remember [--global] <text> | forget <id> | pin <id> | prune | export]',
+  },
+  {
+    name: 'graph',
+    description: 'CompanyOS: agents, skills, files, memory, decisions or cost as a graph',
+    argumentHint: '[agents|skills|files|memory|decisions|cost]',
+  },
   {
     name: 'account',
     description: 'CompanyOS: show, bind or switch the GitHub account for this repo',
@@ -28,4 +41,7 @@ export const register: Register = (on, options) => {
   guard(on, options)
   stats(on)
   band(on)
+  memory(on)
+  graph(on)
+  router(on)
 }

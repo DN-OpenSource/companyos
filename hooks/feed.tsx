@@ -13,11 +13,6 @@ export function feed(on: On, capUsd: number) {
     return { text: opened.isPlaced ? 'Event feed opened.' : `Event feed waits: ${opened.reason}` }
   })
 
-  on('prompt.submit', async ($, e, next) => {
-    if (!e.isMeta) await log($, 'prompt', undefined, e.text.replace(/\s+/g, ' '))
-    return next(e)
-  })
-
   on('tool.call', async ($, e, next) => {
     const id = await log($, 'tool_call', e.agentId, `${String(e.tool)} ${argOf(e)}`.trim())
     const ran = await next(e)
