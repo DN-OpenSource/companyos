@@ -6,6 +6,17 @@ pixel office draw from that log. Technical and plain-language modes read the sam
 
 Requires Claude Code 2.1.287 or later (the mods API). Built and tested on 2.1.311.
 
+## Install
+
+At the prompt of a terminal session:
+
+```
+/plugin install companyos --marketplace DN-OpenSource/companyos
+```
+
+From a shell: `claude plugin install companyos --marketplace DN-OpenSource/companyos`. Installed at the user scope it is on
+in every session, with every feature on by default.
+
 ## The hub
 
 The hub opens beside the transcript when a session starts (turn that off with `openOnStart`), and `/cos` opens one pane with a tab per feature: **1** Events, **2** Telemetry, **3** Diff, **4** Office, **5** Council,
