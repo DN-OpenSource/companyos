@@ -7,6 +7,8 @@ import { feed } from './feed'
 import { graph } from './graph'
 import { guard } from './guard'
 import { memory } from './memory'
+import { modes } from './mode'
+import { reports } from './reports'
 import { router } from './router'
 import { stats } from './stats'
 import { TICKET_TOOL, ticketing } from './tickets'
@@ -34,6 +36,9 @@ const COMMANDS = [
     description: 'CompanyOS: work tickets from Jira, Notion or Linear and keep the wall in sync',
     argumentHint: '[jira|notion|linear] start|move|done|block|add <KEY> … | sync | wall',
   },
+  { name: 'mode', description: 'CompanyOS: switch between technical and plain-language rendering', argumentHint: '[plain|technical]' },
+  { name: 'daily', description: "CompanyOS: write today's plain-language page and standup to .companyos/" },
+  { name: 'report', description: 'CompanyOS: weekly report, or export events as CSV or JSON', argumentHint: '[week|csv|json]' },
   {
     name: 'account',
     description: 'CompanyOS: show, bind or switch the GitHub account for this repo',
@@ -75,4 +80,6 @@ export const register: Register = (on, options) => {
   router(on)
   councils(on)
   ticketing(on)
+  modes(on)
+  reports(on)
 }

@@ -88,6 +88,7 @@ declare module 'claude-code' {
       pending: number
       graph: string
       council: Council | null
+      mode: string
     }
   }
 }

@@ -2,6 +2,7 @@ import type { On } from 'claude-code'
 
 import { readCouncil } from './council'
 import { readEvents } from './events'
+import { isPlain, plain } from './mode'
 import { readPending } from './guard'
 import { STATS } from './stats'
 import { TICKETS, tickets } from './tickets'
@@ -22,13 +23,14 @@ export function band(on: On) {
     if (e.props.hasSurvey || e.props.maxRows < 1) return next(e)
 
     const { Box, Button, Text } = $.ui.resolve(e)
-    const [list, usage, agents, waiting, council, wall] = await Promise.all([
+    const [list, usage, agents, waiting, council, wall, isPlainMode] = await Promise.all([
       readEvents($),
       $.session.usage(),
       $.agent.list(),
       readPending($),
       readCouncil($),
       tickets($),
+      isPlain($),
     ])
     const votes = council?.seats.filter(s => s.vote !== undefined).length ?? 0
     const sitting = council !== null && council.status !== 'verdict' && council.status !== 'failed'
@@ -36,7 +38,7 @@ export function band(on: On) {
     const pct = Math.round(usage.context.percent ?? 0)
     const last = [...list].reverse().find(x => x.kind === 'tool_call' || x.kind === 'prompt')
     const live = agents.filter(a => a.status !== 'completed' && a.status !== 'killed').slice(0, 8)
-    const action = last ? `${last.agent}: ${last.detail}` : 'idle'
+    const action = last ? (isPlainMode ? plain(last) : `${last.agent}: ${last.detail}`) : 'idle'
     const room = Math.max(10, e.props.bodyColumns - 40 - live.length * 2)
 
     return (
@@ -48,7 +50,7 @@ export function band(on: On) {
               {GLYPH[a.status] ?? '?'}
             </Button>
           ))}
-          <Text color={ctxColor(pct)}> ctx {pct}%</Text>
+          <Text color={ctxColor(pct)}> {isPlainMode ? 'memory' : 'ctx'} {pct}%</Text>
           <Text dimColor> · {usd(usage.cost?.usd)} · </Text>
           <Text>{clip(action, room)}</Text>
           {waiting > 0 && <Text color="permission"> · ⚠ {waiting} waiting on you</Text>}

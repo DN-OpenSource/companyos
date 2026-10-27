@@ -2,6 +2,7 @@ import type { On } from 'claude-code'
 
 import { statusLine } from './accounts'
 import { flush, log, mark, readEvents } from './events'
+import { isPlain, plain } from './mode'
 import { argOf, clip, skillOf, time, usd } from './util'
 
 export const FEED = 'companyos-feed'
@@ -77,7 +78,7 @@ export function feed(on: On, capUsd: number) {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
-    const list = await readEvents($)
+    const [list, isPlainMode] = await Promise.all([readEvents($), isPlain($)])
     const room = Math.max(1, (e.viewport?.rows ?? 24) - 3)
     const width = e.props.bodyColumns
 
@@ -86,7 +87,7 @@ export function feed(on: On, capUsd: number) {
         {list.length === 0 && <Text dimColor>No events yet.</Text>}
         {list.slice(-room).map(x => (
           <Text color={x.isError ? 'error' : undefined} dimColor={x.isDone && !x.isError}>
-            {clip(`${time(x.ts)} ${x.agent.slice(0, 8).padEnd(8)} ${x.kind.padEnd(10)} ${x.detail}`, width)}
+            {clip(isPlainMode ? `${time(x.ts).slice(0, 5)} ${plain(x)}` : `${time(x.ts)} ${x.agent.slice(0, 8).padEnd(8)} ${x.kind.padEnd(10)} ${x.detail}`, width)}
           </Text>
         ))}
       </Box>
