@@ -1,7 +1,7 @@
 import type { EngineInterface, On } from 'claude-code'
 
 import { log } from './events'
-import { memoryCommand } from './memory'
+import { memoryBlock, memoryCommand, needsMemory } from './memory'
 import { clip } from './util'
 
 // Prefixes that become a command of the mod: `@council 6 …` runs `/council 6 …`.
@@ -66,11 +66,15 @@ export function router(on: On) {
       if (ran.text) $.ui.log(ran.text)
       return { drop: `Ran /${command}.` }
     }
-    if (lower === '@lead') return next({ ...e, text: args })
-    if (head.length > 1 && head.startsWith('@')) {
+    if (head.length > 1 && head.startsWith('@') && lower !== '@lead') {
       const said = await toAgents($, head.slice(1), args)
       if (said !== undefined) return { drop: said }
     }
-    return next(e)
+    const memo = needsMemory() ? await memoryBlock($) : undefined
+    return next({
+      ...e,
+      ...(lower === '@lead' ? { text: args } : {}),
+      ...(memo ? { context: [...(e.context ?? []), memo] } : {}),
+    })
   })
 }

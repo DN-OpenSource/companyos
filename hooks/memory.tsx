@@ -86,21 +86,35 @@ export async function memoryCommand($: EngineInterface, args: string): Promise<s
   return `${(await visible($)).length} memories here. Usage: remember [--global] <text> | forget <id> | pin <id> | prune | export`
 }
 
+// Whether this load has handed memory to the model yet. prompt.context does it when it reaches the mod;
+// where a plugin above passes that event on, the first prompt carries it instead (router).
+// ponytail: module flag, so a reload injects once more; a $.state flag if that ever matters
+let isInjected = false
+
+export function needsMemory() {
+  return !isInjected
+}
+
+// The memory block for the model, marking the chosen entries used; undefined when there is none.
+export async function memoryBlock($: EngineInterface): Promise<string | undefined> {
+  isInjected = true
+  const now = await $.clock.now()
+  const chosen = (await visible($)).slice(0, INJECT)
+  if (chosen.length === 0) return undefined
+  const ids = new Set(chosen.map(m => m.id))
+  await $.store.set(KEY, (await entries($)).map(m => (ids.has(m.id) ? { ...m, lastUsed: now } : m)))
+  await log($, 'memory', undefined, `injected ${chosen.length} memories`)
+  return ['Long-term memory kept by CompanyOS (facts the person or a council recorded):', ...chosen.map(m => `- ${m.text}`)].join('\n')
+}
+
 export function memory(on: On) {
   on('command.run', { command: 'mem' }, async ($, e) => ({ text: await memoryCommand($, e.args) }))
 
   // The elephant reaches the model: chosen entries join the first message's context.
   on('prompt.context', async ($, e, next) => {
-    const now = await $.clock.now()
-    const chosen = (await visible($)).slice(0, INJECT)
     await $.store.set(LAYERS, e.instructionFiles?.map(f => ({ path: f.path, kind: f.kind, tokens: Math.round(f.content.length / 4) })) ?? [])
-    if (chosen.length === 0) return next(e)
-
-    const ids = new Set(chosen.map(m => m.id))
-    await $.store.set(KEY, (await entries($)).map(m => (ids.has(m.id) ? { ...m, lastUsed: now } : m)))
-    await log($, 'memory', undefined, `injected ${chosen.length} memories`)
-    const text = ['Long-term memory kept by CompanyOS (facts the person or a council recorded):', ...chosen.map(m => `- ${m.text}`)].join('\n')
-    return next({ ...e, blocks: [...e.blocks, { name: 'companyos-memory', text }] })
+    const text = await memoryBlock($)
+    return text === undefined ? next(e) : next({ ...e, blocks: [...e.blocks, { name: 'companyos-memory', text }] })
   })
 
   on('ui.render', { component: 'Pane', requestId: MEMORY }, async ($, e) => {

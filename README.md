@@ -11,7 +11,7 @@ Requires Claude Code 2.1.287 or later (the mods API). Built and tested on 2.1.31
 | Command | Prefix | What it does |
 | --- | --- | --- |
 | `/events` | | Live event feed: time, agent, kind, detail; failures in red |
-| `/stats` | | Context meter and compaction forecast, cost and rate limits, per-agent turns, per-skill loads and tokens, inherited skills, bloated tool results |
+| `/telemetry` | | Context meter and compaction forecast, cost and rate limits, per-agent turns, per-skill loads and tokens, inherited skills, bloated tool results |
 | `/office [theme <name>]` | `@office` | Pixel office: rooms, agents at desks, server-room racks for context, skill library, ticket wall, memory corner, achievements |
 | `/council 3\|6\|9 <question> [A) … B) …]` | `@council` | A council votes in two rounds; vetoes, tie-breaks, verdict card with accept / override / re-run |
 | `/mem [remember [--global] <text> \| forget <id> \| pin <id> \| prune \| export]` | `@mem` | Long-term memory, injected into each conversation's first message |

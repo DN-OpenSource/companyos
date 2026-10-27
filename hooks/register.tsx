@@ -16,7 +16,7 @@ import { TICKET_TOOL, ticketing } from './tickets'
 
 const COMMANDS = [
   { name: 'events', description: 'CompanyOS: show the live event feed' },
-  { name: 'stats', description: 'CompanyOS: context, cost, agents and skills' },
+  { name: 'telemetry', description: 'CompanyOS: context, cost, agents and skills' },
   {
     name: 'mem',
     description: 'CompanyOS: long-term memory',
@@ -51,7 +51,14 @@ const COMMANDS = [
 export const register: Register = (on, options) => {
   // One session.start for the whole mod: the engine takes one unmatched hook per event.
   on('session.start', async ($, e, next) => {
-    for (const c of COMMANDS) await $.command.register(c)
+    // One refused name (a built-in, another plugin's) must not cost the rest their registration.
+    for (const c of COMMANDS) {
+      try {
+        await $.command.register(c)
+      } catch (err) {
+        $.ui.toast(`CompanyOS: /${c.name} not registered: ${String(err).slice(0, 120)}`)
+      }
+    }
     await $.tool.register({
       name: TICKET_TOOL,
       description:

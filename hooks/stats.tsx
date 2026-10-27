@@ -23,7 +23,7 @@ function tally(list: CosEvent[], kind: CosEvent['kind'], keyOf: (x: CosEvent) =>
 }
 
 export function stats(on: On) {
-  on('command.run', { command: 'stats' }, async $ => {
+  on('command.run', { command: 'telemetry' }, async $ => {
     const opened = await $.ui.open({ id: STATS, title: 'CompanyOS · context, cost, skills' })
     return { text: opened.isPlaced ? 'Stats opened.' : `Stats wait: ${opened.reason}` }
   })
