@@ -1,17 +1,18 @@
 import type { Register } from 'claude-code'
 
-import { accounts } from './accounts'
+import { accounts, statusLine } from './accounts'
 import { anthropic } from './anthropic'
 import { band } from './band'
 import { councils } from './council'
 import { diffs } from './diff'
 import { setWebhook } from './events'
 import { feed } from './feed'
+import { gates } from './gate'
 import { graph } from './graph'
 import { guard } from './guard'
+import { hub, openHub } from './hub'
 import { memory } from './memory'
 import { modes } from './mode'
-import { office } from './office'
 import { QUERY_TOOL, reports } from './reports'
 import { sessions } from './sessions'
 import { router } from './router'
@@ -19,6 +20,12 @@ import { stats } from './stats'
 import { TICKET_TOOL, ticketing } from './tickets'
 
 const COMMANDS = [
+  {
+    name: 'cos',
+    description: 'CompanyOS: the hub, a tab per feature; also diff revert, config and focus, whose own names clash with built-ins',
+    argumentHint: '[events|telemetry|diff|office|council|memory|tickets|account|checkpoint|config|quality] | diff revert <id> [hunk] | focus',
+  },
+  { name: 'gate', description: 'CompanyOS: run the done gate now (tests, types, lint, secrets, scope, coverage, leftovers)' },
   { name: 'events', description: 'CompanyOS: show the live event feed' },
   { name: 'telemetry', description: 'CompanyOS: context, cost, agents and skills' },
   {
@@ -39,14 +46,14 @@ const COMMANDS = [
   {
     name: 'ticket',
     description: 'CompanyOS: work tickets from Jira, Notion or Linear and keep the wall in sync',
-    argumentHint: '[jira|notion|linear] start|move|done|block|add <KEY> … | sync | wall',
+    argumentHint: '[jira|notion|linear] start|move|done|block|add|remove <KEY> … | sync | wall',
   },
+  { name: 'ticksync', description: 'CompanyOS: sync the ticket wall from Jira, Notion or Linear', argumentHint: '[jira|notion|linear]' },
   { name: 'mode', description: 'CompanyOS: switch between technical and plain-language rendering', argumentHint: '[plain|technical]' },
   { name: 'daily', description: "CompanyOS: write today's plain-language page and standup to .companyos/" },
   { name: 'report', description: 'CompanyOS: weekly report, or export events as CSV or JSON', argumentHint: '[week|csv|json]' },
   { name: 'office', description: 'CompanyOS: open the pixel office', argumentHint: '[theme loft|tower|cubicles|garage|space]' },
-  { name: 'diff', description: 'CompanyOS: every edit this session, by agent, with revert', argumentHint: '[revert <id>]' },
-  { name: 'checkpoint', description: 'CompanyOS: snapshot the workspace, list snapshots, or restore one', argumentHint: '[label] | list | restore <id>' },
+  { name: 'checkpoint', description: "CompanyOS: snapshot the whole workspace (not only Claude's edits, unlike /rewind), list snapshots, or restore one", argumentHint: '[label] | list | restore <id>' },
   { name: 'replay', description: 'CompanyOS: save this session as a replay file in .companyos/' },
   { name: 'handover', description: 'CompanyOS: write a handover note for a colleague to continue this session' },
   {
@@ -102,10 +109,20 @@ export const register: Register = (on, options) => {
           status: { type: 'string', enum: ['To Do', 'In Progress', 'In Review', 'Blocked', 'Done'] },
           requirement: { type: 'string', description: 'Requirement ID from a BRD, when the ticket names one' },
           note: { type: 'string', description: 'Why it is blocked, or a one-line progress note' },
+          remove: { type: 'boolean', description: 'True takes the ticket off the wall (the tracker keeps it)' },
         },
         required: ['key'],
       },
     })
+    // Everything shows from the start: the status line now, and the hub beside the transcript (the engine
+    // seats a pane it was not asked for once the terminal is wide enough, and holds it until then).
+    if (options.openOnStart !== false && e.isInteractive) void openHub($)
+    try {
+      const usage = await $.session.usage()
+      $.ui.status(`CompanyOS · ctx ${Math.round(usage.context.percent ?? 0)}% · $${(usage.cost?.usd ?? 0).toFixed(2)}${await statusLine($)}`)
+    } catch {
+      $.ui.status('CompanyOS · ready')
+    }
     return next(e)
   })
 
@@ -124,5 +141,6 @@ export const register: Register = (on, options) => {
   reports(on)
   diffs(on)
   sessions(on)
-  office(on, String(options.theme ?? 'loft'), options.lowPower === true)
+  gates(on, options)
+  hub(on, options)
 }

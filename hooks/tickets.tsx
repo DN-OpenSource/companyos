@@ -1,8 +1,8 @@
-import type { EngineInterface, On } from 'claude-code'
+import type { EngineInterface, On, RenderInput } from 'claude-code'
 
 import type { Ticket } from '../types'
 import { log } from './events'
-import { clip } from './util'
+import { clip, COL } from './util'
 
 export const TICKETS = 'companyos-tickets'
 export const TICKET_TOOL = 'ticket_update'
@@ -16,6 +16,16 @@ async function storeKey($: EngineInterface) {
 
 export async function tickets($: EngineInterface): Promise<Ticket[]> {
   return ((await $.store.get(await storeKey($))) as Ticket[] | undefined) ?? []
+}
+
+// Takes a ticket off the wall only; the tracker keeps it.
+async function remove($: EngineInterface, key: string): Promise<boolean> {
+  const list = await tickets($)
+  if (!list.some(t => t.key === key)) return false
+  await $.store.set(await storeKey($), list.filter(t => t.key !== key))
+  await log($, 'ticket_update', undefined, `${key} taken off the wall`)
+  $.ui.invalidate('ui.render')
+  return true
 }
 
 async function upsert($: EngineInterface, patch: Partial<Ticket> & { key: string }) {
@@ -59,10 +69,11 @@ export async function ticketCommand($: EngineInterface, args: string): Promise<s
     })
     return 'Asked Claude to sync the wall.'
   }
-  if (!KEY.test(key)) return 'Usage: /ticket [jira|notion|linear] start|move|done|block|add <KEY> [status|title|reason] · /ticket sync · /ticket wall'
+  if (!KEY.test(key)) return 'Usage: /ticket [jira|notion|linear] start|move|done|block|add|remove <KEY> [status|title|reason] · /ticket sync · /ticket wall'
   const old = (await tickets($)).find(t => t.key === key)
   const from = source ?? old?.source ?? 'jira'
 
+  if (verb === 'remove') return (await remove($, key)) ? `Took ${key} off the wall.` : `${key} is not on the wall.`
   if (verb === 'add') return `Added ${(await upsert($, { key, source: from, title: text || old?.title || '' })).key}.`
   if (verb === 'start') {
     const t = await upsert($, { key, source: from, status: 'In Progress', title: text || old?.title || '', agent: 'lead' })
@@ -79,13 +90,55 @@ export async function ticketCommand($: EngineInterface, args: string): Promise<s
   return `${key} → ${status}.`
 }
 
+export async function ticketsBody($: EngineInterface, e: RenderInput<'Pane'>) {
+  const { Box, Button, Text } = $.ui.resolve(e)
+  const list = await tickets($)
+  const sources = [...new Set(list.map(t => t.source))]
+  // The design's four columns; a blocked ticket stays in its column, marked.
+  const cols: [string, Ticket['status'][]][] = [
+    ['To do', ['To Do']],
+    ['In progress', ['In Progress', 'Blocked']],
+    ['In review', ['In Review']],
+    ['Done', ['Done']],
+  ]
+  const w = Math.max(16, Math.floor((e.props.bodyColumns - 2) / 4))
+
+  return (
+    <Box flexDirection="column">
+      <Text>
+        <Text color={COL.acc}>/ticket wall</Text> <Text dimColor>· {sources.length ? `synced via ${sources.join(', ')}` : 'not synced yet · /ticksync'}</Text>
+      </Text>
+      <Box flexDirection="row">
+        {cols.map(([name, statuses]) => (
+          <Box flexDirection="column" width={w}>
+            <Text color={COL.accL}>{name}</Text>
+            {list
+              .filter(t => statuses.includes(t.status))
+              .map(t => (
+                <Button key={`work-${t.key}`} plain onPress={() => ticketCommand($, `${t.source} start ${t.key}`).then(msg => $.ui.toast(msg))}>
+                  <Text color={t.status === 'Blocked' ? COL.red : COL.acc}>{t.status === 'Blocked' ? '⚑ ' : ''}{t.key} </Text>
+                  <Text color={t.agent ? COL.fg : COL.dim}>{clip(t.title, w - t.key.length - 3)}</Text>
+                </Button>
+              ))}
+          </Box>
+        ))}
+      </Box>
+      <Text dimColor>start|move|done|block|add|remove &lt;KEY&gt; · /ticksync</Text>
+    </Box>
+  )
+}
+
 export function ticketing(on: On) {
   on('command.run', { command: 'ticket' }, async ($, e) => ({ text: await ticketCommand($, e.args) }))
+  on('command.run', { command: 'ticksync' }, async ($, e) => ({ text: await ticketCommand($, `${e.args} sync`.trim()) }))
 
   // Claude reports what it read or changed in the tracker; the wall follows.
   on('tool.call', { tool: /^mcp__companyos__ticket_update$/ }, async ($, e) => {
     const a = e as unknown as Partial<Ticket>
     if (typeof a.key !== 'string' || !a.key) return { deny: 'key is required' }
+    if ((e as unknown as { remove?: unknown }).remove === true) {
+      return { result: (await remove($, a.key)) ? `${a.key} is off the CompanyOS wall.` : `${a.key} was not on the wall.` }
+    }
     const status = COLUMNS.find(c => c.toLowerCase() === String(a.status ?? '').toLowerCase())
     const t = await upsert($, {
       key: a.key,
@@ -101,40 +154,5 @@ export function ticketing(on: On) {
     return { result: `${t.key} is ${t.status} on the CompanyOS wall.` }
   })
 
-  on('ui.render', { component: 'Pane', requestId: TICKETS }, async ($, e) => {
-    const { Box, Button, Text } = $.ui.resolve(e)
-    const list = await tickets($)
-    const width = e.props.bodyColumns
-    const noReq = list.filter(t => !t.requirement).length
-
-    return (
-      <Box flexDirection="column">
-        {list.length === 0 && <Text dimColor>No tickets yet. /ticket sync, or @jira start PROJ-12</Text>}
-        {COLUMNS.map(col => {
-          const here = list.filter(t => t.status === col)
-          return here.length === 0 ? null : (
-            <Box flexDirection="column">
-              <Text bold>
-                {col} ({here.length})
-              </Text>
-              {here.map(t => (
-                <Box flexDirection="row">
-                  <Text color={col === 'Blocked' ? 'error' : t.agent ? undefined : 'inactive'}>
-                    {'  '}
-                    {t.key.padEnd(10)} {clip(t.title || '(untitled)', Math.max(10, width - 44))} <Text dimColor>{t.agent ?? 'nobody'}{t.requirement ? ` · ${t.requirement}` : ''}</Text>{' '}
-                  </Text>
-                  {col !== 'Done' && col !== 'In Progress' && (
-                    <Button key={`work-${t.key}`} plain onPress={() => ticketCommand($, `${t.source} start ${t.key}`).then(() => {})}>
-                      work on this
-                    </Button>
-                  )}
-                </Box>
-              ))}
-            </Box>
-          )
-        })}
-        {list.length > 0 && <Text dimColor>{noReq} tickets name no requirement ID</Text>}
-      </Box>
-    )
-  })
+  on('ui.render', { component: 'Pane', requestId: TICKETS }, ($, e) => ticketsBody($, e))
 }

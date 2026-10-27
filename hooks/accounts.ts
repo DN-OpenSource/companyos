@@ -41,7 +41,7 @@ export async function statusLine($: EngineInterface) {
   return b?.binding ? ` · gh:${b.binding.login}` : ''
 }
 
-async function show($: EngineInterface) {
+export async function accountSummary($: EngineInterface) {
   const b = await bound($)
   if (b === undefined) return 'Not in a git repository.'
   const [email, login, who] = await Promise.all([
@@ -64,7 +64,7 @@ export function accounts(on: On) {
     const [verb, login, email] = e.args.trim().split(/\s+/)
     const b = await bound($)
 
-    if (!verb) return { text: await show($) }
+    if (!verb) return { text: await accountSummary($) }
     if (b === undefined) return { text: 'Not in a git repository.' }
 
     if (verb === 'bind' && login) {

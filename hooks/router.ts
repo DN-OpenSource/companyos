@@ -1,6 +1,7 @@
 import type { EngineInterface, On } from 'claude-code'
 
 import { log } from './events'
+import { resetGateHolds } from './gate'
 import { memoryBlock, memoryCommand, needsMemory } from './memory'
 import { tickets } from './tickets'
 import { clip } from './util'
@@ -46,6 +47,7 @@ export function router(on: On) {
     if (e.isMeta || e.command) return next(e)
     const text = e.text.trim()
     await log($, 'prompt', undefined, text.replace(/\s+/g, ' '))
+    if (e.origin.kind !== 'plugin') await resetGateHolds($)
 
     if (text.startsWith('$ ')) {
       await shell($, text.slice(2))

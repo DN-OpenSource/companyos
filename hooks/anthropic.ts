@@ -68,7 +68,7 @@ export async function routeFor($: EngineInterface, subagentType: string): Promis
   return routes[subagentType] ?? routes['*']
 }
 
-async function show($: EngineInterface): Promise<string> {
+export async function anthropicSummary($: EngineInterface): Promise<string> {
   const [who, usage, model, list, ahead] = await Promise.all([$.session.identity(), $.session.usage(), $.session.model(), profiles($), forecast($)])
   const routes = ((await $.store.get(ROUTES)) as Record<string, string> | undefined) ?? {}
   const account = who.deny === undefined ? `${who.kind}${who.email ? ` · ${who.email}` : ''}${who.organizationId ? ` · org ${who.organizationId}` : ''}` : 'not known'
@@ -110,7 +110,7 @@ async function use($: EngineInterface, name: string): Promise<string> {
 // `/anthropic`: show | add <name> <provider> [k=v…] | remove <name> | use <name> | route <type|*> <model> | unroute <type|*>
 export async function anthropicCommand($: EngineInterface, args: string): Promise<string> {
   const [verb = '', name = '', ...rest] = args.trim().split(/\s+/)
-  if (!verb || verb === 'show') return show($)
+  if (!verb || verb === 'show') return anthropicSummary($)
   const list = await profiles($)
   if (verb === 'add') {
     const provider = rest[0] as Profile['provider'] | undefined

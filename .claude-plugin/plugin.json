@@ -7,6 +7,12 @@
   },
   "types": "./types/index.d.ts",
   "userConfig": {
+    "openOnStart": {
+      "type": "boolean",
+      "title": "Open the hub when a session starts",
+      "description": "Show the CompanyOS hub beside the transcript from the start; off, /cos opens it",
+      "default": true
+    },
     "protectedPaths": {
       "type": "string",
       "title": "Protected paths",
@@ -43,6 +49,42 @@
       "title": "Webhook URL",
       "description": "POST every event as JSON to this http(s) address; empty for none",
       "default": ""
+    },
+    "gateModes": {
+      "type": "string",
+      "title": "Done gate modes",
+      "description": "check:block|warn|off, comma-separated, over tests:block,types:block,lint:warn,secrets:block,scope:warn,coverage:warn,leftovers:warn",
+      "default": ""
+    },
+    "gateTests": {
+      "type": "string",
+      "title": "Done gate: test command",
+      "description": "Empty: the package.json 'test' script",
+      "default": ""
+    },
+    "gateTypes": {
+      "type": "string",
+      "title": "Done gate: type-check command",
+      "description": "Empty: a package.json 'typecheck' script",
+      "default": ""
+    },
+    "gateLint": {
+      "type": "string",
+      "title": "Done gate: lint command",
+      "description": "Empty: the package.json 'lint' script",
+      "default": ""
+    },
+    "gateCoverage": {
+      "type": "string",
+      "title": "Done gate: coverage command",
+      "description": "Prints a percentage; empty turns the check off",
+      "default": ""
+    },
+    "gateCoverageTarget": {
+      "type": "number",
+      "title": "Done gate: coverage target (%)",
+      "description": "Below this the coverage check fails or warns",
+      "default": 80
     }
   }
 }

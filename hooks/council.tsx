@@ -1,34 +1,33 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, On } from 'claude-code'
+import type { EngineInterface, On, RenderInput } from 'claude-code'
 
 import type { Council, Seat, Verdict } from '../types'
 import { log } from './events'
 import { remember } from './memory'
-import { clip } from './util'
+import { clip, COL } from './util'
 
 export const COUNCIL = 'companyos-council'
 const LETTERS = 'ABCDEFGH'
 const MAX_TOKENS = 600
 const VETO_ROLES = ['security', 'ops']
 
+// The design's seats: three, six or nine, each a lens on the question.
 const ROLES: Record<number, string[]> = {
-  3: ['lead', 'reviewer', 'second reviewer'],
-  6: ['lead', 'architect', 'security', 'tester', 'domain reviewer', 'second domain reviewer'],
-  9: ['lead', 'architect', 'security', 'tester', 'domain reviewer', 'second domain reviewer', 'product', 'ops', "devil's advocate"],
+  3: ['security', 'ops', 'performance'],
+  6: ['security', 'ops', 'performance', 'cost', 'product', 'data'],
+  9: ['security', 'ops', 'performance', 'cost', 'product', 'data', 'qa', 'frontend', 'legal'],
 }
 
 const PERSONA: Record<string, string> = {
-  lead: 'You lead the team and know the conversation so far; weigh delivery against risk.',
-  reviewer: 'You review code for correctness and maintainability.',
-  'second reviewer': 'You review code for simplicity; prefer the smallest change that works.',
-  architect: 'You guard module boundaries, coupling and long-term design.',
   security: 'You look for secrets, injection, data exposure and least-privilege breaks. You may vote "veto".',
-  tester: 'You ask how each option is tested and what could regress.',
-  'domain reviewer': 'You judge fit with the product domain and existing conventions.',
-  'second domain reviewer': 'You judge user-facing impact and backwards compatibility.',
+  ops: 'You weigh deploy risk, rollback, running cost of services and observability. You may vote "veto"; an irreversible option needs a rollback plan.',
+  performance: 'You weigh latency, throughput and load on hot paths.',
+  cost: 'You weigh what each option costs to build and to run.',
   product: 'You weigh user value, scope and deadlines.',
-  ops: 'You weigh deploy risk, rollback and observability. You may vote "veto"; an irreversible option needs a rollback plan.',
-  "devil's advocate": 'You argue against the majority view and propose a counter option if one is better.',
+  data: 'You weigh data consistency, reporting and migrations.',
+  qa: 'You ask how each option is tested and what could regress.',
+  frontend: 'You weigh what the user sees: speed, states and errors.',
+  legal: 'You weigh retention, privacy and licensing rules.',
 }
 
 const council = atom({ plugin: 'companyos', key: 'council' } as const, null)
@@ -77,13 +76,8 @@ function parseSeat(role: string, text: string, size: number): Seat {
 
 async function ask1($: EngineInterface, c: Council, role: string, others?: Seat[]): Promise<{ seat: Seat; tokens: number }> {
   const prompt = brief(c, role, others)
-  // The lead seat sees the conversation; the rest get the brief alone.
-  const forked = role === 'lead' ? await $.model.fork({ prompt }) : undefined
-  const r =
-    forked && !(forked.isAnswered === false && forked.reason === 'nothing-to-fork')
-      ? forked
-      : await $.model.complete({ model: await $.session.model(), prompt, maxTokens: MAX_TOKENS })
-  const used = 'usage' in r && r.usage ? r.usage.input_tokens + r.usage.output_tokens : 0
+  const r = await $.model.complete({ model: await $.session.model(), prompt, maxTokens: MAX_TOKENS })
+  const used = r.usage.input_tokens + r.usage.output_tokens
   return r.isAnswered ? { seat: parseSeat(role, r.text, c.options.length), tokens: used } : { seat: { role, vote: 'abstain', confidence: 0, reason: `no answer (${r.reason})` }, tokens: used }
 }
 
@@ -93,9 +87,8 @@ export function tally(c: Council): Verdict {
   const ranked = [...counts].sort((a, b) => b[1] - a[1])
   const veto = c.seats.find(s => s.vote === 'veto')
   const [top, second] = ranked
-  const devil = c.seats.find(s => s.role === "devil's advocate")
   const isTie = top !== undefined && second !== undefined && top[1] === second[1]
-  const letter = isTie && devil?.vote && LETTERS.includes(devil.vote) ? devil.vote : top?.[0]
+  const letter = isTie ? undefined : top?.[0]
   const option = letter ? c.options[LETTERS.indexOf(letter)] : undefined
   const votes = c.seats.filter(s => s.vote && LETTERS.includes(s.vote)).length
   const forTop = letter ? (counts.get(letter) ?? 0) : 0
@@ -103,7 +96,7 @@ export function tally(c: Council): Verdict {
   const confidence = c.seats.reduce((n, s) => n + (s.confidence ?? 0), 0) / Math.max(1, c.seats.length)
   const changes = [...new Set(c.seats.map(s => s.change).filter((x): x is string => !!x))]
   const dissent = c.seats.filter(s => s.vote !== letter && s.vote !== 'abstain').map(s => `${s.role}: ${s.reason ?? s.vote}`)
-  const needsYou = veto !== undefined || option === undefined || (isTie && devil === undefined) || confidence < 0.6 || (c.size > 3 && forTop - (votes - forTop) <= 1)
+  const needsYou = veto !== undefined || option === undefined || isTie || confidence < 0.6 || (c.size > 3 && forTop - (votes - forTop) <= 1)
   const chosen = veto ? 'blocked' : (option ?? 'escalated')
   const plain = veto
     ? `The ${veto.role} member blocked this: ${veto.reason ?? 'no reason given'}`
@@ -139,8 +132,96 @@ export async function convene($: EngineInterface, size: number, text: string): P
     isError: verdict.needsYou,
     tokensIn: c.tokens,
   })
-  $.ui.toast(`CompanyOS: council verdict in · ${verdict.chosen} ${verdict.split}`)
+  $.ui.toast(`council verdict in · ${verdict.chosen} ${verdict.split}`)
+  if (verdict.needsYou) {
+    const number = (await $.store.keys()).filter(k => k.startsWith('decisions/')).length
+    const lead = verdict.chosen === 'blocked' ? `blocked by ${verdict.vetoedBy}` : `${LETTERS[options.indexOf(verdict.chosen)] ?? '?'} leads ${verdict.split}`
+    $.ui.log(`◇ Council #${number} needs a verdict · ${lead}
+  ${clip(question, 80)} · press 5 to open`)
+  }
   return verdict
+}
+
+export async function councilBody($: EngineInterface, e: RenderInput<'Pane'>) {
+  const { Box, Button, Text } = $.ui.resolve(e)
+  const c = await read($, council)
+  const decided = (await $.store.keys()).filter(k => k.startsWith('decisions/')).length
+  if (c === null) {
+    return (
+      <Box flexDirection="column">
+        <Text dimColor>No council yet. /council 3 should we … A) … B) …</Text>
+        <Text dimColor>Every verdict goes into the decision log.</Text>
+      </Box>
+    )
+  }
+  const v = c.verdict
+  const number = decided + (v ? 0 : 1)
+  const width = e.props.bodyColumns
+  const round = c.status === 'round 1' ? 1 : 2
+  const pick = (on: boolean) => (on ? { backgroundColor: COL.fg, color: COL.ink } : { color: COL.fg })
+  const winner = v ? LETTERS[c.options.indexOf(v.chosen)] : undefined
+  const asArgs = (n: number) => `${n} ${c.question} ${c.options.map((o, i) => `${LETTERS[i]}) ${o}`).join(' ')}`
+  const verdictLine = v
+    ? v.vetoedBy
+      ? `Verdict: blocked · vetoed by ${v.vetoedBy} · ${v.split}`
+      : winner
+        ? `Verdict: ${winner}) ${v.chosen} · ${v.split} · no veto`
+        : `Verdict: no majority · ${v.split} · your call`
+    : `Voting · ${c.seats.filter(s => s.vote).length} of ${c.size} in`
+
+  return (
+    <Box flexDirection="column">
+      <Text>
+        <Text color={COL.acc}>Council #{number}</Text> · “{clip(c.question, Math.max(20, width - 20))}”
+      </Text>
+      <Text dimColor>
+        {c.options.map((o, i) => `${LETTERS[i]}) ${o}`).join('  ')} · round {round} of 2 · security and ops can veto
+      </Text>
+      <Box flexDirection="row">
+        {[3, 6, 9].map(n => (
+          <Button key={`size-${n}`} plain onPress={() => $.command.run({ command: 'council', args: asArgs(n) }).then(() => {})}>
+            <Text {...pick(n === c.size)}> {n} seats </Text>
+          </Button>
+        ))}
+        <Text dimColor> {c.size === 9 ? 'needs your yes' : c.size === 6 ? `est. $${((c.size * 2 * 1400) / 1_000_000 * 15).toFixed(2)} · shown first` : 'runs now'}</Text>
+      </Box>
+      {c.seats.map(s => (
+        <Text>
+          {'  '}
+          {s.role.padEnd(13)}
+          <Text color={s.vote === undefined ? COL.dim : s.vote === 'veto' ? COL.red : s.vote === winner ? COL.sage : COL.acc}>{(s.vote ?? '…').padEnd(8)}</Text>
+          <Text dimColor>{clip(s.reason ?? (s.vote === undefined ? 'thinking' : ''), Math.max(10, width - 26))}</Text>
+        </Text>
+      ))}
+      <Text color={v?.vetoedBy ? COL.red : v ? COL.sage : COL.accL}>{verdictLine}</Text>
+      {v?.changes.map(ch => (
+        <Text dimColor>  • {ch}</Text>
+      ))}
+      <Box flexDirection="row">
+        <Button
+          key="accept"
+          hotkey="a"
+          plain
+          onPress={() =>
+            $.prompt
+              .submit({ text: `The council of ${c.size} decided on "${c.question}": ${v?.chosen ?? 'no verdict yet'} (${v?.split ?? ''}). Proceed with it${v?.changes.length ? `, applying: ${v.changes.join('; ')}` : ''}.` })
+              .then(() => $.ui.toast('decision logged'))
+          }
+        >
+          <Text color={COL.fg}>[ a: accept ] </Text>
+        </Button>
+        <Button key="override" hotkey="o" plain onPress={() => $.prompt.fill({ text: `Override the council on "${c.question}": `, mode: 'replace' }).then(() => {})}>
+          <Text color={COL.fg}>[ o: override ] </Text>
+        </Button>
+        {c.size < 9 && (
+          <Button key="rerun" hotkey="b" plain onPress={() => $.command.run({ command: 'council', args: asArgs(c.size === 3 ? 6 : 9) }).then(() => {})}>
+            <Text color={COL.fg}>[ b: re-run bigger ]</Text>
+          </Button>
+        )}
+      </Box>
+      <Text dimColor>Every verdict goes into the decision log.</Text>
+    </Box>
+  )
 }
 
 export function councils(on: On) {
@@ -163,68 +244,5 @@ export function councils(on: On) {
     return { text: `Council of ${size} convened.` }
   })
 
-  on('ui.render', { component: 'Pane', requestId: COUNCIL }, async ($, e) => {
-    const { Box, Button, Text } = $.ui.resolve(e)
-    const c = await read($, council)
-    if (c === null) return <Text dimColor>No council yet. /council 3 should we … A) … B) …</Text>
-    const v = c.verdict
-    const width = e.props.bodyColumns
-
-    return (
-      <Box flexDirection="column">
-        <Text bold>Whiteboard: {c.question}</Text>
-        {c.options.map((o, i) => (
-          <Text>
-            {'  '}
-            {LETTERS[i]}) {o}
-          </Text>
-        ))}
-        <Text dimColor>
-          {c.status} · {c.tokens} tokens
-        </Text>
-        <Text> </Text>
-        {c.seats.map(s => (
-          <Text color={s.vote === 'veto' ? 'error' : undefined} dimColor={s.vote === undefined}>
-            {s.vote === undefined ? '…' : '✋'} {s.role.padEnd(24)} {(s.vote ?? '').padEnd(8)} {s.confidence === undefined ? '' : s.confidence.toFixed(2)}{' '}
-            {clip(s.reason ?? '', Math.max(10, width - 44))}
-          </Text>
-        ))}
-        {v && (
-          <Box flexDirection="column">
-            <Text> </Text>
-            <Text bold color={v.vetoedBy ? 'error' : v.needsYou ? 'warning' : 'success'}>
-              🔨 {v.chosen} · {v.split}
-              {v.vetoedBy ? ` · vetoed by ${v.vetoedBy}` : ''}
-            </Text>
-            <Text>{v.plain}</Text>
-            {v.changes.map(ch => (
-              <Text dimColor>• {ch}</Text>
-            ))}
-            <Box flexDirection="row">
-              <Button
-                key="accept"
-                variant="primary"
-                hotkey="1"
-                onPress={() =>
-                  $.prompt
-                    .submit({ text: `The council of ${c.size} decided on "${c.question}": ${v.chosen} (${v.split}). Proceed with it${v.changes.length ? `, applying: ${v.changes.join('; ')}` : ''}.` })
-                    .then(() => {})
-                }
-              >
-                accept
-              </Button>
-              <Button key="override" hotkey="2" onPress={() => $.prompt.fill({ text: `Override the council on "${c.question}": `, mode: 'replace' }).then(() => {})}>
-                override
-              </Button>
-              {c.size < 9 && (
-                <Button key="rerun" hotkey="3" onPress={() => $.command.run({ command: 'council', args: `${c.size === 3 ? 6 : 9} ${c.question} ${c.options.map((o, i) => `${LETTERS[i]}) ${o}`).join(' ')}` }).then(() => {})}>
-                  re-run with {c.size === 3 ? 6 : 9}
-                </Button>
-              )}
-            </Box>
-          </Box>
-        )}
-      </Box>
-    )
-  })
+  on('ui.render', { component: 'Pane', requestId: COUNCIL }, ($, e) => councilBody($, e))
 }

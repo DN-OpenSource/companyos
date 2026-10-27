@@ -1,0 +1,16 @@
+{
+  "name": "sorigin",
+  "owner": {
+    "name": "Dhiraj Nikam"
+  },
+  "metadata": {
+    "description": "CompanyOS for Claude Code"
+  },
+  "plugins": [
+    {
+      "name": "companyos",
+      "source": "./",
+      "description": "Your Claude Code session as a company: hub, band, office, councils, memory, tickets, accounts and a done gate."
+    }
+  ]
+}

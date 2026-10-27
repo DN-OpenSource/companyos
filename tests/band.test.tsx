@@ -9,13 +9,19 @@ const BAND = {
 
 test('the band shows context, cost and live agents', async ($, on) => {
   mock.store(on)
+  // Stands for the engine and the other mods sharing the band: they draw nothing here.
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+    const { Box } = $.ui.resolve(e)
+    return <Box />
+  })
   on('session.repo', () => ({ value: null }))
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000, percent: 72 }, rateLimits: [], cost: { usd: 4.31 } } }))
   on('agent.list', () => ({ value: [{ id: 'a1', description: 'tests', type: 'Explore', status: 'running' }] }))
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...BAND, surface })
-    expect((await ui.find({ type: 'Text', text: /ctx 72%/ }))?.text).toContain('72')
+    expect(await ui.find({ type: 'Text', text: / ctx / })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: / 72% / })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /\$4\.31/ })).toBeDefined()
     expect(await ui.find({ type: 'Button', key: 'agent-a1' })).toBeDefined()
     await ui.unmount()
