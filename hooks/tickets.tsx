@@ -97,7 +97,8 @@ export function ticketing(on: On) {
       ...(e.agentId ? { agent: e.agentId } : {}),
     })
     if (t.status === 'Blocked') $.ui.toast(`CompanyOS: ${t.key} is blocked${t.note ? `: ${t.note}` : ''}`)
-    return { result: { ok: true, ticket: t } }
+    // A plugin tool answers the model in text.
+    return { result: `${t.key} is ${t.status} on the CompanyOS wall.` }
   })
 
   on('ui.render', { component: 'Pane', requestId: TICKETS }, async ($, e) => {

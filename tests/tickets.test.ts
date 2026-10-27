@@ -18,6 +18,7 @@ test('a ticket Claude reports lands on the wall, blocked ones flagged', async ($
 
   const ok = await report({ key: 'PROJ-12', title: 'Login fails', status: 'In Progress', source: 'jira' })
   expect(ok.deny).toBeUndefined()
+  expect(ok.result).toBe('PROJ-12 is In Progress on the CompanyOS wall.')
   await report({ key: 'PROJ-13', title: 'Export CSV', status: 'blocked', note: 'which columns?' })
   expect((await report({ title: 'no key' })).deny).toBe('key is required')
 
