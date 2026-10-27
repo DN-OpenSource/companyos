@@ -1,6 +1,7 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
 test('the event query tool answers from the log, filtered', async ($, on) => {
+  mock.store(on)
   on('clock.now', () => ({ value: 1_700_000_000_000 }))
   on('tool.call', () => ({ result: {} }))
   await $.tool.call({ tool: 'Bash', command: 'npm test' })
