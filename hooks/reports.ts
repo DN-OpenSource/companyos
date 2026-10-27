@@ -113,7 +113,31 @@ async function write($: EngineInterface, name: string, text: string) {
   return path
 }
 
+export const QUERY_TOOL = 'events_query'
+
+// What Claude reads when asked about the company's own history: matching events, newest last.
+export async function queryEvents($: EngineInterface, q: { kind?: string; agent?: string; text?: string; limit?: number; scope?: string }) {
+  const list = q.scope === 'all' ? await allEvents($) : await readEvents($)
+  const text = (q.text ?? '').toLowerCase()
+  const hits = list.filter(
+    x => (!q.kind || x.kind === q.kind) && (!q.agent || x.agent === q.agent) && (!text || x.detail.toLowerCase().includes(text)),
+  )
+  const limit = Math.max(1, Math.min(200, q.limit ?? 30))
+  const rows = hits.slice(-limit).map(x => `${new Date(x.ts).toISOString()} ${x.agent} ${x.kind}${x.isError ? ' ERROR' : ''} ${x.detail}${x.tokensIn ? ` in=${x.tokensIn}` : ''}${x.tokensOut ? ` out=${x.tokensOut}` : ''}`)
+  const decided = q.kind === 'vote' || text ? (await decisions($, 0)).filter(d => !text || d.question.toLowerCase().includes(text)) : []
+  return [
+    `${hits.length} matching events${hits.length > limit ? `, last ${limit} shown` : ''}:`,
+    ...rows,
+    ...decided.map(d => `decision ${new Date(d.ts).toISOString()} "${d.question}": ${d.verdict?.plain ?? `${d.chosen} (${d.split})`}`),
+  ].join('\n')
+}
+
 export function reports(on: On) {
+  on('tool.call', { tool: /^mcp__companyos__events_query$/ }, async ($, e) => {
+    const a = e as unknown as { kind?: string; agent?: string; text?: string; limit?: number; scope?: string }
+    return { result: await queryEvents($, a) }
+  })
+
   on('command.run', { command: 'daily' }, async $ => {
     const path = await write($, `daily-${day(await $.clock.now())}.md`, await dailyPage($))
     return { text: `Wrote today's page for stakeholders: ${path}` }

@@ -12,7 +12,7 @@ import { guard } from './guard'
 import { memory } from './memory'
 import { modes } from './mode'
 import { office } from './office'
-import { reports } from './reports'
+import { QUERY_TOOL, reports } from './reports'
 import { sessions } from './sessions'
 import { router } from './router'
 import { stats } from './stats'
@@ -74,6 +74,21 @@ export const register: Register = (on, options) => {
         $.ui.toast(`CompanyOS: /${c.name} not registered: ${String(err).slice(0, 120)}`)
       }
     }
+    await $.tool.register({
+      name: QUERY_TOOL,
+      description:
+        "Read CompanyOS's own event log: prompts, tool calls, skill loads, delegations, compactions, turns, guard blocks, memory, council votes and verdicts, ticket moves. Use it to answer the person's questions about what the agents did and why (e.g. why a council rejected an option). Read-only.",
+      inputSchema: {
+        type: 'object',
+        properties: {
+          kind: { type: 'string', enum: ['prompt', 'tool_call', 'skill_load', 'delegation', 'compaction', 'turn', 'identity', 'guard', 'memory', 'vote', 'ticket_update'] },
+          agent: { type: 'string', description: "'lead', 'you', or a subagent id" },
+          text: { type: 'string', description: 'Words the event detail or a decision question contains' },
+          limit: { type: 'number', description: 'Most recent N matches, 1 to 200 (default 30)' },
+          scope: { type: 'string', enum: ['session', 'all'], description: 'This session (default) or every stored session' },
+        },
+      },
+    })
     await $.tool.register({
       name: TICKET_TOOL,
       description:

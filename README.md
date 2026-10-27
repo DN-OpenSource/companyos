@@ -71,6 +71,11 @@ All local. The mod's store (`$.store`, shared by this machine's sessions) holds 
 under `refs/companyos/`. `/daily`, `/report`, `/replay` and `/handover` write to
 `.companyos/` in the working directory; add it to `.gitignore` if you don't want it committed.
 
+## Asking about history
+
+The mod registers `mcp__companyos__events_query`, a read-only view of its event log and decisions, so you can ask
+Claude things like "why did the council reject option A yesterday?" or "which skills did the Explore agent load?".
+
 ## How tickets sync
 
 The mod registers `mcp__companyos__ticket_update`. `/ticket start PROJ-12` asks Claude to load the ticket with
