@@ -52,7 +52,8 @@ searches in the transcript to one dim line each (`/cos focus` toggles it).
 
 Before Claude ends a turn that changed files, the gate runs seven checks and holds the turn when one set to **block**
 fails, sending Claude the reason; **warn** checks only show. It lets go after three holds in a row, so a check that
-cannot pass never loops.
+cannot pass never loops. Where an organization plugin keeps the turn-end hook (`classic.Stop`) from the mod, the gate
+runs as the turn completes instead and sends Claude the reason as a new prompt.
 
 | Check | What it runs | Default |
 | --- | --- | --- |

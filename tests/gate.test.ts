@@ -6,7 +6,7 @@ const ok = (stdout: string, exitCode = 0) => ({ value: { exitCode, stdout, stder
 const DIFF = ['+++ b/src/invoice.ts', '@@ -40,0 +41,2 @@', '+  const total = round(sum)', '+  console.log(total)'].join('\n')
 
 // A repo where an edit lands and tests pass or fail as `testsPass` says; every hook is set before the first $ call.
-function world(on: On, testsPass: boolean) {
+function world(on: On, testsPass: boolean, sent: string[] = []) {
   mock.store(on)
   on('clock.now', () => ({ value: 1_700_000_000_000 }))
   on('session.repo', () => ({ value: { root: '/repo', remote: null, internal: false, name: 'repo' } }))
@@ -24,7 +24,11 @@ function world(on: On, testsPass: boolean) {
     if (line.includes('npm run -s test')) return ok(testsPass ? 'all passed' : '2 failing in invoice.spec.ts', testsPass ? 0 : 1)
     return ok('')
   })
-  on('prompt.submit', (_, e) => ({ text: e.text }))
+  on('prompt.submit', (_, e) => {
+    if (e.origin.kind === 'plugin') sent.push(e.text)
+    return { text: e.text }
+  })
+  on('ui.log', () => ({ value: undefined }))
   // No settings Stop hook beneath: the turn may end.
   on('classic.Stop', () => ({}))
 }
@@ -57,4 +61,19 @@ test('a gate that cannot pass lets go after three holds', async ($, on) => {
   await $.tool.call({ tool: 'Write', file_path: '/repo/src/invoice.ts', content: 'b' })
   for (let i = 0; i < 3; i++) expect((await $.classic.Stop(stop)).block).toBeDefined()
   expect((await $.classic.Stop(stop)).block).toBeUndefined()
+})
+
+test('where classic.Stop never arrives, the turn end sends Claude back with the reason, three times at most', async ($, on) => {
+  const sent: string[] = []
+  world(on, false, sent)
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000, percent: 10 }, rateLimits: [] } }))
+  on('session.id', () => ({ value: 's1' }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  await $.prompt.submit(ask('fix the invoice'))
+  await $.tool.call({ tool: 'Write', file_path: '/repo/src/invoice.ts', content: 'b' })
+
+  const end = { answer: 'done', durationMs: 1_000, isAborted: false, turnId: 't1', reason: 'answer' } as const
+  for (let i = 0; i < 4; i++) await $.turn.complete(end)
+  expect(sent.length).toBe(3)
+  expect(sent[0]).toContain('The CompanyOS done gate held this turn')
 })

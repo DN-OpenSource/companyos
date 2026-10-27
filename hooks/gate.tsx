@@ -220,17 +220,39 @@ export function gates(on: On, options: PluginOptions) {
     return { text: failed.length ? holdReason(g) : `Done gate passed (${g.checks.filter(c => c.status === 'warn').length} warnings).` }
   })
 
+  gateOptions = options
+
   // Before Claude ends a turn that changed files, the gate runs; a failing block check sends it back with the reason.
   on('classic.Stop', async ($, e, next) => {
-    const events = await readEvents($)
-    const since = [...events].reverse().find(x => x.kind === 'prompt')?.ts ?? 0
-    const edited = (await readChanges($)).some(c => c.ts >= since)
-    const g = await read($, gate)
-    if (!edited || g.holds >= MAX_HOLDS) return next(e)
-    const state = await runGate($, options)
-    if (!state.checks.some(c => c.status === 'fail')) return next(e)
-    await update($, gate, x => ({ ...x, holds: x.holds + 1 }))
-    $.ui.toast(`CompanyOS: done gate held the turn (${state.checks.filter(c => c.status === 'fail').map(c => c.name).join(', ')})`)
-    return { block: holdReason(state) }
+    stopSeenAt = await $.clock.now()
+    const reason = await judge($, options)
+    return reason === undefined ? next(e) : { block: reason }
   })
+}
+
+// The settings in force, for the turn-end fallback the feed calls.
+let gateOptions: PluginOptions = {}
+// When classic.Stop last reached the mod; a plugin above may pass that event on past it.
+let stopSeenAt = 0
+
+// Runs the gate for a turn that changed files; the reason to send Claude back with, or undefined to let it end.
+async function judge($: EngineInterface, options: PluginOptions): Promise<string | undefined> {
+  const events = await readEvents($)
+  const since = [...events].reverse().find(x => x.kind === 'prompt')?.ts ?? 0
+  const edited = (await readChanges($)).some(c => c.ts >= since)
+  const g = await read($, gate)
+  if (!edited || g.holds >= MAX_HOLDS) return undefined
+  const state = await runGate($, options)
+  if (!state.checks.some(c => c.status === 'fail')) return undefined
+  await update($, gate, x => ({ ...x, holds: x.holds + 1 }))
+  $.ui.toast(`CompanyOS: done gate held the turn (${state.checks.filter(c => c.status === 'fail').map(c => c.name).join(', ')})`)
+  return holdReason(state)
+}
+
+// Where classic.Stop never reached the mod this turn, the gate runs as the turn completes and a failing
+// block check sends Claude back with a prompt of its own: the same hold, one step later.
+export async function gateAtTurnEnd($: EngineInterface, turnStartedAt: number) {
+  if (stopSeenAt >= turnStartedAt) return
+  const reason = await judge($, gateOptions)
+  if (reason !== undefined) await $.prompt.submit({ text: reason })
 }

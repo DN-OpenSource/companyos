@@ -5,6 +5,7 @@ import { statusLine } from './accounts'
 import { routeFor, sampleLimits } from './anthropic'
 import { flush, log, mark, readEvents } from './events'
 import { recordEdit } from './diff'
+import { gateAtTurnEnd } from './gate'
 import { resetMemory } from './memory'
 import { isPlain, plain, setMode } from './mode'
 import { argOf, clip, skillOf, time, usd } from './util'
@@ -115,6 +116,7 @@ export function feed(on: On, capUsd: number) {
   on('turn.complete', async ($, e, next) => {
     const usage = await $.session.usage()
     if (e.agentId === undefined) await sampleLimits($, usage)
+    if (e.agentId === undefined && e.reason === 'answer') await gateAtTurnEnd($, (await $.clock.now()) - e.durationMs)
     await log($, 'turn', e.agentId, `${e.reason} in ${Math.round(e.durationMs / 1000)}s`, {
       isDone: true,
       isError: e.reason === 'error',
