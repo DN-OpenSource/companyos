@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, On } from 'claude-code'
+import type { EngineInterface, On, RenderInput } from 'claude-code'
 
 import type { Council, Seat, Verdict } from '../types'
 import { log } from './events'
@@ -143,6 +143,83 @@ export async function convene($: EngineInterface, size: number, text: string): P
   return verdict
 }
 
+export async function councilBody($: EngineInterface, e: RenderInput<'Pane'>) {
+  const { Box, Button, Text } = $.ui.resolve(e)
+  const c = await read($, council)
+  if (c === null) return <Text dimColor>No council yet. /council 3 should we … A) … B) …</Text>
+  const v = c.verdict
+  const width = e.props.bodyColumns
+
+  return (
+    <Box flexDirection="column">
+      <Text bold>Whiteboard: {c.question}</Text>
+      <Box flexDirection="row">
+        {[3, 6, 9].map(n => (
+          <Button
+            key={`size-${n}`}
+            variant={n === c.size ? 'primary' : undefined}
+            onPress={() => $.command.run({ command: 'council', args: `${n} ${c.question} ${c.options.map((o, i) => `${LETTERS[i]}) ${o}`).join(' ')}` }).then(() => {})}
+          >
+            {n} seats
+          </Button>
+        ))}
+        <Text dimColor> {c.size === 3 ? 'runs without asking' : c.size === 6 ? 'shows its cost first' : 'needs your yes'} · security and ops can veto</Text>
+      </Box>
+      {c.options.map((o, i) => (
+        <Text>
+          {'  '}
+          {LETTERS[i]}) {o}
+        </Text>
+      ))}
+      <Text dimColor>
+        {c.status} · {c.tokens} tokens
+      </Text>
+      <Text> </Text>
+      {c.seats.map(s => (
+        <Text color={s.vote === 'veto' ? 'error' : undefined} dimColor={s.vote === undefined}>
+          {s.vote === undefined ? '…' : '✋'} {s.role.padEnd(24)} {(s.vote ?? '').padEnd(8)} {s.confidence === undefined ? '' : s.confidence.toFixed(2)}{' '}
+          {clip(s.reason ?? '', Math.max(10, width - 44))}
+        </Text>
+      ))}
+      {v && (
+        <Box flexDirection="column">
+          <Text> </Text>
+          <Text bold color={v.vetoedBy ? 'error' : v.needsYou ? 'warning' : 'success'}>
+            🔨 {v.chosen} · {v.split}
+            {v.vetoedBy ? ` · vetoed by ${v.vetoedBy}` : ''}
+          </Text>
+          <Text>{v.plain}</Text>
+          {v.changes.map(ch => (
+            <Text dimColor>• {ch}</Text>
+          ))}
+          <Box flexDirection="row">
+            <Button
+              key="accept"
+              variant="primary"
+              hotkey="a"
+              onPress={() =>
+                $.prompt
+                  .submit({ text: `The council of ${c.size} decided on "${c.question}": ${v.chosen} (${v.split}). Proceed with it${v.changes.length ? `, applying: ${v.changes.join('; ')}` : ''}.` })
+                  .then(() => {})
+              }
+            >
+              accept
+            </Button>
+            <Button key="override" hotkey="o" onPress={() => $.prompt.fill({ text: `Override the council on "${c.question}": `, mode: 'replace' }).then(() => {})}>
+              override
+            </Button>
+            {c.size < 9 && (
+              <Button key="rerun" hotkey="b" onPress={() => $.command.run({ command: 'council', args: `${c.size === 3 ? 6 : 9} ${c.question} ${c.options.map((o, i) => `${LETTERS[i]}) ${o}`).join(' ')}` }).then(() => {})}>
+                re-run with {c.size === 3 ? 6 : 9}
+              </Button>
+            )}
+          </Box>
+        </Box>
+      )}
+    </Box>
+  )
+}
+
 export function councils(on: On) {
   on('command.run', { command: 'council' }, async ($, e) => {
     const m = e.args.trim().match(/^(3|6|9)?\s*(.+)$/s)
@@ -163,68 +240,5 @@ export function councils(on: On) {
     return { text: `Council of ${size} convened.` }
   })
 
-  on('ui.render', { component: 'Pane', requestId: COUNCIL }, async ($, e) => {
-    const { Box, Button, Text } = $.ui.resolve(e)
-    const c = await read($, council)
-    if (c === null) return <Text dimColor>No council yet. /council 3 should we … A) … B) …</Text>
-    const v = c.verdict
-    const width = e.props.bodyColumns
-
-    return (
-      <Box flexDirection="column">
-        <Text bold>Whiteboard: {c.question}</Text>
-        {c.options.map((o, i) => (
-          <Text>
-            {'  '}
-            {LETTERS[i]}) {o}
-          </Text>
-        ))}
-        <Text dimColor>
-          {c.status} · {c.tokens} tokens
-        </Text>
-        <Text> </Text>
-        {c.seats.map(s => (
-          <Text color={s.vote === 'veto' ? 'error' : undefined} dimColor={s.vote === undefined}>
-            {s.vote === undefined ? '…' : '✋'} {s.role.padEnd(24)} {(s.vote ?? '').padEnd(8)} {s.confidence === undefined ? '' : s.confidence.toFixed(2)}{' '}
-            {clip(s.reason ?? '', Math.max(10, width - 44))}
-          </Text>
-        ))}
-        {v && (
-          <Box flexDirection="column">
-            <Text> </Text>
-            <Text bold color={v.vetoedBy ? 'error' : v.needsYou ? 'warning' : 'success'}>
-              🔨 {v.chosen} · {v.split}
-              {v.vetoedBy ? ` · vetoed by ${v.vetoedBy}` : ''}
-            </Text>
-            <Text>{v.plain}</Text>
-            {v.changes.map(ch => (
-              <Text dimColor>• {ch}</Text>
-            ))}
-            <Box flexDirection="row">
-              <Button
-                key="accept"
-                variant="primary"
-                hotkey="1"
-                onPress={() =>
-                  $.prompt
-                    .submit({ text: `The council of ${c.size} decided on "${c.question}": ${v.chosen} (${v.split}). Proceed with it${v.changes.length ? `, applying: ${v.changes.join('; ')}` : ''}.` })
-                    .then(() => {})
-                }
-              >
-                accept
-              </Button>
-              <Button key="override" hotkey="2" onPress={() => $.prompt.fill({ text: `Override the council on "${c.question}": `, mode: 'replace' }).then(() => {})}>
-                override
-              </Button>
-              {c.size < 9 && (
-                <Button key="rerun" hotkey="3" onPress={() => $.command.run({ command: 'council', args: `${c.size === 3 ? 6 : 9} ${c.question} ${c.options.map((o, i) => `${LETTERS[i]}) ${o}`).join(' ')}` }).then(() => {})}>
-                  re-run with {c.size === 3 ? 6 : 9}
-                </Button>
-              )}
-            </Box>
-          </Box>
-        )}
-      </Box>
-    )
-  })
+  on('ui.render', { component: 'Pane', requestId: COUNCIL }, ($, e) => councilBody($, e))
 }

@@ -43,10 +43,10 @@ test('an edit splits into hunks; one hunk reverts alone, then the rest, and the 
   expect(writes).toEqual([['a', 'B', 'B2', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].join('\n')])
   expect(JSON.stringify(session.appended())).toContain('hunk 2 of 2')
 
-  const rest = await $.command.run({ command: 'diff', args: `revert ${id}`, ...HOW })
+  const rest = await $.command.run({ command: 'cos', args: `diff revert ${id}`, ...HOW })
   expect(rest.text).toContain('Reverted change')
   expect(file).toBe(BEFORE)
-  expect((await $.command.run({ command: 'diff', args: `revert ${id}`, ...HOW })).text).toBe('Nothing to revert.')
+  expect((await $.command.run({ command: 'cos', args: `diff revert ${id}`, ...HOW })).text).toBe('Nothing to revert.')
 })
 
 test('a file changed again since is left alone', async ($, on) => {
@@ -60,6 +60,6 @@ test('a file changed again since is left alone', async ($, on) => {
   })
   await $.tool.call({ tool: 'Edit', file_path: '/repo/x.ts', old_string: 'b', new_string: 'B' })
   file = AFTER + '\nlater'
-  const ran = await $.command.run({ command: 'diff', args: `revert ${(1_700_000_000_000).toString(36)}`, ...HOW })
+  const ran = await $.command.run({ command: 'cos', args: `diff revert ${(1_700_000_000_000).toString(36)}`, ...HOW })
   expect(ran.text).toContain('changed again since')
 })

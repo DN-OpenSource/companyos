@@ -9,6 +9,11 @@ const BAND = {
 
 test('the band shows context, cost and live agents', async ($, on) => {
   mock.store(on)
+  // Stands for the engine and the other mods sharing the band: they draw nothing here.
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+    const { Box } = $.ui.resolve(e)
+    return <Box />
+  })
   on('session.repo', () => ({ value: null }))
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000, percent: 72 }, rateLimits: [], cost: { usd: 4.31 } } }))
   on('agent.list', () => ({ value: [{ id: 'a1', description: 'tests', type: 'Explore', status: 'running' }] }))

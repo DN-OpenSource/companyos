@@ -6,6 +6,13 @@ pixel office draw from that log. Technical and plain-language modes read the sam
 
 Requires Claude Code 2.1.287 or later (the mods API). Built and tested on 2.1.311.
 
+## The hub
+
+`/cos` opens one pane with a tab per feature: **1** Events, **2** Telemetry, **3** Diff, **4** Office, **5** Council,
+**6** Memory, **7** Tickets, **8** Account, **9** Checkpoints, **0** Config, **q** Quality (the done gate). `/cos <tab>`
+opens it on that tab; the digits press the tabs while the pane holds the keys. **◉ focus** folds routine reads and
+searches in the transcript to one dim line each (`/cos focus` toggles it).
+
 ## Commands
 
 | Command | Prefix | What it does |
@@ -19,14 +26,16 @@ Requires Claude Code 2.1.287 or later (the mods API). Built and tested on 2.1.31
 | `/ticket [jira\|notion\|linear] start\|move\|done\|block\|add\|remove <KEY> …`, `/ticket sync`, `/ticket wall` | `@jira`, `@notion`, `@linear` | Work tickets through your connected tracker; the wall stays in sync |
 | `/anthropic [add <name> <provider> [k=v…] \| use <name> \| route <agent type\|*> <model> \| unroute …]` | | Signed-in Claude account, rate-limit forecast, provider profiles (subscription, API, Bedrock, Vertex, gateway) applied to the next session, and per-agent model routes |
 | `/account [bind <login> [email] \| unbind \| switch <login>]` | `@gh` | GitHub identity bound per repo |
-| `/diff [revert <id> [hunk]]` | | Every edit this session by agent, hunk by hunk, each with its own revert that tells the agent why |
-| `/checkpoint [label] \| list \| restore <id>` | | Snapshot the workspace with `git stash create` (nothing in the tree moves); restore after a yes |
+| `/cos diff`, `/cos diff revert <id> [hunk]` | | Every edit this session by agent, hunk by hunk, each with its own revert that tells the agent why |
+| `/checkpoint [label] \| list \| restore <id>` | | Snapshot the whole workspace with `git stash create` (unlike `/rewind`, not only Claude's edits; nothing in the tree moves); restore after a yes |
 | `/replay` | | Save the session (messages and events) as `.companyos/replay-<session>.json` |
 | `/handover` | | Write a handover note for a colleague, technical and plain |
+| `/gate` | | Run the done gate now; the Quality tab shows each check with a fix button |
+| `/cos config` | | The mod's settings as they stand (`/config` is Claude Code's own) |
 | `/mode [plain\|technical]` | | Switch how every pane and the band read |
 | `/daily` | | Writes `.companyos/daily-<date>.md`: plain summary, standup, timeline |
 | `/report [week\|csv\|json]` | | Weekly report and decision digest, or every stored event as CSV or JSON |
-| | `$ <command>` | Runs a shell line; output lands in the transcript |
+| | `$ <command>` | Runs a shell line; output lands in the transcript. Claude Code's own `!` does the same |
 | | `@<agent> <text>`, `@all <text>` | Messages a running subagent or teammate |
 
 ## Always on
@@ -36,8 +45,27 @@ Requires Claude Code 2.1.287 or later (the mods API). Built and tested on 2.1.31
 - **Status line:** `CompanyOS · ctx 46% · $1.23 · gh:work` after each turn.
 - **Spinner:** `· 3 tools · 46% context` while Claude works.
 - **Edits:** `+42 −7 in 3 files` on the band while this session has unreverted edits.
-- **Autocomplete:** `@` suggests agents and the prefixes; after `start`, `move`, `done` or `block` it suggests ticket keys.
+- **Suggestions:** Claude Code's prompt has no completion site, so the hint line under the prompt suggests how to finish an `@` word (agents, prefixes), a `/` command or a ticket key.
 - **Office weather:** sun when the repo's last CI run passed, storm when it failed (read with `gh run list`).
+
+## Done gate
+
+Before Claude ends a turn that changed files, the gate runs seven checks and holds the turn when one set to **block**
+fails, sending Claude the reason; **warn** checks only show. It lets go after three holds in a row, so a check that
+cannot pass never loops.
+
+| Check | What it runs | Default |
+| --- | --- | --- |
+| Tests | `gateTests`, or the package.json `test` script | block |
+| Types | `gateTypes`, or a `typecheck` script | block |
+| Lint | `gateLint`, or a `lint` script | warn |
+| Secrets | key-shaped strings in the added lines | block |
+| Scope | dependency files changed (package.json, lockfiles, …) | warn |
+| Coverage | `gateCoverage`, compared with `gateCoverageTarget` | warn (off with no command) |
+| Leftovers | `console.log`, `debugger`, `print(`, TODO, FIXME added | warn |
+
+The Quality tab adds **Before you review**: the file with the most added lines, changed files with no test changed
+beside them, and dependency changes. `gateModes` overrides any check, e.g. `lint:block,coverage:off`.
 
 ## Guards
 
@@ -60,6 +88,9 @@ reloads. Turn the mod off in `/plugin` to get out.
 | `theme` | `loft` | `loft`, `tower`, `cubicles`, `garage`, `space` |
 | `lowPower` | `false` | No office animation |
 | `webhookUrl` | empty | POST every event as JSON to this address |
+| `gateModes` | empty | `check:block\|warn\|off` pairs over the defaults above |
+| `gateTests`, `gateTypes`, `gateLint` | empty | Commands for the gate; empty uses package.json scripts |
+| `gateCoverage`, `gateCoverageTarget` | empty, `80` | A command that prints a percentage, and the target |
 
 Themes are JSON files in `themes/` (`{ "floor", "wall", "desk", "accent", "text" }` as `#rrggbb`); drop one in
 and `@office theme <file name>` picks it.
@@ -82,6 +113,15 @@ The mod registers `mcp__companyos__ticket_update`. `/ticket start PROJ-12` asks 
 your connected Jira, Notion or Linear tools, branch and commit with the key, and report status back through that
 tool, so the wall, the band and blocked toasts follow the tracker. The mod itself calls no tracker directly,
 because tool names differ per connection.
+
+## For admins: what the mod hooks and calls
+
+The mod runs with the user's permissions. `claude plugin validate` reads its source and reports this:
+
+```
+./register.tsx hooks: session.start, command.run{command=events}, tool.call, skill.prompt, agent.spawn, session.compact, turn.complete, session.end, ui.render{component=Pane, requestId=companyos-feed}, command.run{command=account}, command.run{command=anthropic}, tool.call{tool=Bash}, tool.call{tool=Edit}, tool.call{tool=Write}, command.run{command=telemetry}, ui.render{component=Pane, requestId=companyos-stats}, ui.render{component=AbovePrompt}, ui.render{component=Spinner}, command.run{command=mem}, prompt.context, ui.render{component=Pane, requestId=companyos-memory}, command.run{command=graph}, ui.render{component=Pane, requestId=companyos-graph}, prompt.submit, prompt.autocomplete, command.run{command=council}, ui.render{component=Pane, requestId=companyos-council}, command.run{command=ticket}, tool.call{tool=/"^mcp__companyos__ticket_update$"/}, ui.render{component=Pane, requestId=companyos-tickets}, command.run{command=mode}, tool.call{tool=/"^mcp__companyos__events_query$"/}, c… [+477 chars]
+./register.tsx calls: $.agent.list, $.clock.after, $.clock.every (via officeCommand), $.clock.now, $.command.register, $.command.run, $.fs.list (via loadThemes), $.fs.read (via guess, loadThemes, text, use), $.fs.write (via revert, use, write), $.http.fetch (via log), $.model.complete (via ask1, handover), $.model.fork (via ask1), $.process.run (via line, run, shell), $.prompt.fill (via councilBody), $.prompt.submit (via councilBody, qualityBody, ticketCommand), $.session.append (via restore, revert), $.session.cwd, $.session.id (via allEvents, flush, replay), $.session.identity (via accountSummary, anthropicSummary), $.session.messages (via handover, replay), $.session.model (via anthropicSummary, ask1, handover), $.session.repo (via bound, checkWeather, checkpointBody, dailyPage, rootOf, runGate, scopeOf, storeKey, use), $.session.send (via toAgents), $.session.turns (via checkpoint), $.session.usage, $.state.get, $.state.set, $.store.delete, $.store.get (via allEvents, anthropicComm… [+438 chars]
+```
 
 ## Develop
 

@@ -7,6 +7,10 @@ import { skillOf } from './util'
 // One event stream, two renderings: technical or plain language.
 const mode = atom({ plugin: 'companyos', key: 'mode' } as const, 'technical')
 
+export async function setMode($: EngineInterface, to: 'plain' | 'technical') {
+  await update($, mode, () => to)
+}
+
 export async function isPlain($: EngineInterface): Promise<boolean> {
   return (await read($, mode)) === 'plain'
 }

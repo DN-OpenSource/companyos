@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { AgentInfo, EngineInterface, On } from 'claude-code'
+import type { AgentInfo, EngineInterface, On, RenderInput } from 'claude-code'
 
 import type { Council, CosEvent, MemoryEntry } from '../types'
 import { run } from './accounts'
@@ -11,6 +11,11 @@ import { tickets } from './tickets'
 import { clip, skillOf } from './util'
 
 export const OFFICE = 'companyos-office'
+
+// The hub sets the tab and opens itself; an office drawn on its own opens the hub at that tab.
+async function openTab($: EngineInterface, tab: string) {
+  await $.command.run({ command: 'cos', args: tab })
+}
 const W = 72
 const H = 22
 const DEFAULT = 0x01000000
@@ -54,6 +59,20 @@ const weather = atom({ plugin: 'companyos', key: 'weather' } as const, 'unknown'
 // What the pane shows: the live floor, the org-chart wall, or a replay of a session's events.
 const view = atom({ plugin: 'companyos', key: 'view' } as const, { kind: 'floor', speed: 4 })
 const TICKS = 1_000_000_000
+const ciLabel = atom({ plugin: 'companyos', key: 'ciLabel' } as const, '')
+// What each room is for, and the hub tab that shows it in full.
+const ROOMS: [string, string, string][] = [
+  ['corner office', 'You, and the approvals waiting on you.', 'account'],
+  ['meeting room', 'Councils meet here; the whiteboard shows the question.', 'council'],
+  ['server room', 'Racks fill as the context window fills.', 'telemetry'],
+  ['library', 'One book per skill; a loading skill glows.', 'telemetry'],
+  ['open plan', 'A desk per agent, animated by status.', 'events'],
+  ['ticket wall', 'Tickets by column; grey ones have no agent.', 'tickets'],
+  ['filing room', 'A drawer per file read or edited.', 'diff'],
+  ['QA desk', 'The last test run, and the done gate.', 'quality'],
+  ['memory corner', 'The elephant grows with memories; the goldfish bowl is the context.', 'memory'],
+]
+const roomShown = atom({ plugin: 'companyos', key: 'room' } as const, -1)
 
 type Cell = [number, number, number]
 type Grid = Cell[]
@@ -296,10 +315,13 @@ function achievements(list: CosEvent[], council: Council | null): Achievement[] 
 // The repo's last CI run, read with gh: sun when it passed, storm when it failed.
 async function checkWeather($: EngineInterface) {
   const root = (await $.session.repo())?.root
-  const out = root ? await run($, ['gh', 'run', 'list', '-L', '1', '--json', 'conclusion,status'], root) : undefined
-  const last = out ? ((JSON.parse(out) as { conclusion?: string; status?: string }[])[0] ?? {}) : {}
+  const out = root ? await run($, ['gh', 'run', 'list', '-L', '1', '--json', 'conclusion,status,headBranch,number'], root) : undefined
+  const last = out ? ((JSON.parse(out) as { conclusion?: string; status?: string; headBranch?: string; number?: number }[])[0] ?? {}) : {}
   const sky = last.status && last.status !== 'completed' ? 'cloud' : last.conclusion === 'success' ? 'sun' : last.conclusion ? 'storm' : 'unknown'
   await update($, weather, () => sky)
+  const where = last.headBranch ? ` · ${last.headBranch} #${last.number ?? '?'}` : ''
+  const label = sky === 'sun' ? `CI ✓ passed${where}` : sky === 'storm' ? `CI ✕ ${last.conclusion}${where}` : sky === 'cloud' ? `CI running${where}` : 'CI: no runs found (gh)'
+  await update($, ciLabel, () => label)
 }
 
 export async function officeCommand($: EngineInterface, args: string, isLowPower: boolean): Promise<string> {
@@ -335,100 +357,129 @@ export async function officeCommand($: EngineInterface, args: string, isLowPower
   return verb === 'replay' ? 'Replaying the session in the office.' : verb === 'wall' ? 'Org chart wall.' : 'Office open.'
 }
 
+export async function officeBody($: EngineInterface, e: RenderInput<'Pane'>, defaultTheme: string, isLowPower: boolean) {
+  const [picked, frame, sky, liveAgents, liveEvents, usage, liveCouncil, memories, wall, isPlainMode, now, shown] = await Promise.all([
+    read($, theme),
+    read($, tick),
+    read($, weather),
+    $.agent.list(),
+    readEvents($),
+    $.session.usage(),
+    readCouncil($),
+    entries($),
+    tickets($),
+    isPlain($),
+    $.clock.now(),
+    read($, view),
+  ])
+  const themes = await loadThemes($)
+  const t = themes[picked || defaultTheme] ?? LOFT
+  const roomInfo = ROOMS[await read($, roomShown)]
+
+  // A replay walks a session's events forward `speed` per half-second tick.
+  const isReplay = shown.kind === 'replay'
+  const source = isReplay && shown.session ? (((await $.store.get(`events/${shown.session}`)) as CosEvent[] | undefined) ?? []) : liveEvents
+  const cursor = isReplay ? Math.min(source.length, ((frame - (shown.from ?? frame) + TICKS) % TICKS) * shown.speed) : source.length
+  const events = source.slice(0, cursor)
+  const agents = isReplay ? replayAgents(events) : liveAgents
+  const council = isReplay ? null : liveCouncil
+  const at = events.at(-1)
+  const hour = new Date(isReplay && at ? at.ts : now).getHours()
+  const grid =
+    shown.kind === 'wall'
+      ? drawWall(t, events, agents)
+      : draw({ t, agents, events, pct: isReplay ? 0 : (usage.context.percent ?? 0), council, memories, wall, frame, hour, weather: isReplay ? 'unknown' : sky })
+  if (isReplay) {
+    const clock = at ? new Date(at.ts).toTimeString().slice(0, 8) : '--:--:--'
+    write(grid, 2, 0, ` REPLAY ${clock} ${cursor}/${source.length}${cursor >= source.length ? ' done' : ''} `, 0x000000, 0xffeb3b)
+  }
+  const last = new Map<string, CosEvent>()
+  for (const x of events) if (x.kind === 'tool_call') last.set(x.agent, x)
+  const bubbles = [...last].slice(-6)
+  const won = achievements(events, council).filter(a => a.isUnlocked)
+  const width = e.props.bodyColumns
+
+  const surface = e.surface
+  const picture =
+    surface === 'terminal'
+      ? (() => {
+          const { Raster } = $.ui.resolve(e)
+          return <Raster key="office" columns={W} rows={H} cells={cellsOf(grid)} />
+        })()
+      : (() => {
+          const { Svg } = $.ui.resolve(e)
+          return <Svg source={svgOf(grid, t)} alt="The office: rooms, agents at desks, context racks, skill library and ticket wall" />
+        })()
+
+  const { Box, Button, Text } = $.ui.resolve(e)
+  const go = (args: string) => () => officeCommand($, args, isLowPower).then(() => {})
+  return (
+    <Box flexDirection="column">
+      {picture}
+      <Box flexDirection="row">
+        <Button key="view-floor" variant={shown.kind === 'floor' ? 'primary' : undefined} onPress={go('floor')}>
+          floor
+        </Button>
+        <Button key="view-wall" variant={shown.kind === 'wall' ? 'primary' : undefined} onPress={go('wall')}>
+          org chart wall
+        </Button>
+        <Button key="view-replay" variant={isReplay ? 'primary' : undefined} onPress={go('replay this 4')}>
+          {isReplay ? 'replay again' : 'replay session'}
+        </Button>
+      </Box>
+      {isReplay && (
+        <Text color="warning">
+          Replaying {cursor}/{source.length} events{cursor >= source.length ? ', done' : ''}
+          {at ? ` · now at ${new Date(at.ts).toTimeString().slice(0, 8)}` : ''}
+        </Text>
+      )}
+      {shown.kind === 'wall' && (
+        <Text>
+          Org chart: lead → {agents.map(a => `${a.name ?? a.id} (${a.status})`).join(', ') || 'nobody yet'}
+        </Text>
+      )}
+      {bubbles.map(([agent, x]) => (
+        <Text>
+          💬 {clip(isPlainMode ? plain(x) : `${agent}: ${x.detail}`, width - 3)}
+        </Text>
+      ))}
+      <Text dimColor>
+        {agents.filter(a => a.status === 'running').length} at work · {agents.filter(a => a.status === 'idle').length} on a break · {memories.length} memories ·{' '}
+        {Math.round(usage.context.percent ?? 0)}% context
+      </Text>
+      <Text color="claude">🏆 {won.length ? won.map(a => a.name).join(' · ') : 'no achievements yet'}</Text>
+      <Text dimColor>{(await read($, ciLabel)) || 'CI: not checked yet'}</Text>
+      <Box flexDirection="row">
+        {ROOMS.map(([name], i) => (
+          <Button key={`room-${i}`} plain onPress={() => update($, roomShown, r => (r === i ? -1 : i)).then(() => {})}>
+            {name}{' '}
+          </Button>
+        ))}
+      </Box>
+      {roomInfo && (
+        <Box flexDirection="row">
+          <Text>
+            {roomInfo[0]}: {roomInfo[1]}{' '}
+          </Text>
+          <Button key="room-open" plain onPress={() => openTab($, roomInfo[2])}>
+            open {roomInfo[2]} ▸
+          </Button>
+        </Box>
+      )}
+      <Box flexDirection="row">
+        <Text dimColor>theme </Text>
+        {Object.keys(themes).map(name => (
+          <Button key={`theme-${name}`} variant={name === (picked || defaultTheme) ? 'primary' : undefined} onPress={() => update($, theme, () => name).then(() => {})}>
+            {name}
+          </Button>
+        ))}
+      </Box>
+    </Box>
+  )
+}
+
 export function office(on: On, defaultTheme: string, isLowPower: boolean) {
   on('command.run', { command: 'office' }, async ($, e) => ({ text: await officeCommand($, e.args, isLowPower) }))
 
-  on('ui.render', { component: 'Pane', requestId: OFFICE }, async ($, e) => {
-    const [picked, frame, sky, liveAgents, liveEvents, usage, liveCouncil, memories, wall, isPlainMode, now, shown] = await Promise.all([
-      read($, theme),
-      read($, tick),
-      read($, weather),
-      $.agent.list(),
-      readEvents($),
-      $.session.usage(),
-      readCouncil($),
-      entries($),
-      tickets($),
-      isPlain($),
-      $.clock.now(),
-      read($, view),
-    ])
-    const themes = await loadThemes($)
-    const t = themes[picked || defaultTheme] ?? LOFT
-
-    // A replay walks a session's events forward `speed` per half-second tick.
-    const isReplay = shown.kind === 'replay'
-    const source = isReplay && shown.session ? (((await $.store.get(`events/${shown.session}`)) as CosEvent[] | undefined) ?? []) : liveEvents
-    const cursor = isReplay ? Math.min(source.length, ((frame - (shown.from ?? frame) + TICKS) % TICKS) * shown.speed) : source.length
-    const events = source.slice(0, cursor)
-    const agents = isReplay ? replayAgents(events) : liveAgents
-    const council = isReplay ? null : liveCouncil
-    const at = events.at(-1)
-    const hour = new Date(isReplay && at ? at.ts : now).getHours()
-    const grid =
-      shown.kind === 'wall'
-        ? drawWall(t, events, agents)
-        : draw({ t, agents, events, pct: isReplay ? 0 : (usage.context.percent ?? 0), council, memories, wall, frame, hour, weather: isReplay ? 'unknown' : sky })
-    if (isReplay) {
-      const clock = at ? new Date(at.ts).toTimeString().slice(0, 8) : '--:--:--'
-      write(grid, 2, 0, ` REPLAY ${clock} ${cursor}/${source.length}${cursor >= source.length ? ' done' : ''} `, 0x000000, 0xffeb3b)
-    }
-    const last = new Map<string, CosEvent>()
-    for (const x of events) if (x.kind === 'tool_call') last.set(x.agent, x)
-    const bubbles = [...last].slice(-6)
-    const won = achievements(events, council).filter(a => a.isUnlocked)
-    const width = e.props.bodyColumns
-
-    const surface = e.surface
-    const picture =
-      surface === 'terminal'
-        ? (() => {
-            const { Raster } = $.ui.resolve(e)
-            return <Raster key="office" columns={W} rows={H} cells={cellsOf(grid)} />
-          })()
-        : (() => {
-            const { Svg } = $.ui.resolve(e)
-            return <Svg source={svgOf(grid, t)} alt="The office: rooms, agents at desks, context racks, skill library and ticket wall" />
-          })()
-
-    const { Box, Button, Text } = $.ui.resolve(e)
-    const go = (args: string) => () => officeCommand($, args, isLowPower).then(() => {})
-    return (
-      <Box flexDirection="column">
-        {picture}
-        <Box flexDirection="row">
-          <Button key="view-floor" variant={shown.kind === 'floor' ? 'primary' : undefined} onPress={go('floor')}>
-            floor
-          </Button>
-          <Button key="view-wall" variant={shown.kind === 'wall' ? 'primary' : undefined} onPress={go('wall')}>
-            org chart wall
-          </Button>
-          <Button key="view-replay" variant={isReplay ? 'primary' : undefined} onPress={go('replay this 4')}>
-            {isReplay ? 'replay again' : 'replay session'}
-          </Button>
-        </Box>
-        {isReplay && (
-          <Text color="warning">
-            Replaying {cursor}/{source.length} events{cursor >= source.length ? ', done' : ''}
-            {at ? ` · now at ${new Date(at.ts).toTimeString().slice(0, 8)}` : ''}
-          </Text>
-        )}
-        {shown.kind === 'wall' && (
-          <Text>
-            Org chart: lead → {agents.map(a => `${a.name ?? a.id} (${a.status})`).join(', ') || 'nobody yet'}
-          </Text>
-        )}
-        {bubbles.map(([agent, x]) => (
-          <Text>
-            💬 {clip(isPlainMode ? plain(x) : `${agent}: ${x.detail}`, width - 3)}
-          </Text>
-        ))}
-        <Text dimColor>
-          {agents.filter(a => a.status === 'running').length} at work · {agents.filter(a => a.status === 'idle').length} on a break · {memories.length} memories ·{' '}
-          {Math.round(usage.context.percent ?? 0)}% context
-        </Text>
-        <Text color="claude">🏆 {won.length ? won.map(a => a.name).join(' · ') : 'no achievements yet'}</Text>
-      </Box>
-    )
-  })
+  on('ui.render', { component: 'Pane', requestId: OFFICE }, ($, e) => officeBody($, e, defaultTheme, isLowPower))
 }

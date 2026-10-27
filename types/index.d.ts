@@ -58,6 +58,16 @@ export type Change = {
 // What the office pane shows; a replay walks a stored session (or this one) from tick `from`.
 export type OfficeView = { kind: 'floor' | 'wall' | 'replay'; session?: string; from?: number; speed: number }
 
+// One check of the done gate and how it last came out.
+export type GateCheck = {
+  id: 'tests' | 'types' | 'lint' | 'secrets' | 'scope' | 'coverage' | 'leftovers'
+  name: string
+  status: 'pass' | 'fail' | 'warn' | 'off' | 'running'
+  note: string
+}
+
+export type GateState = { ts: number; isRunning: boolean; checks: GateCheck[]; review: string[]; holds: number }
+
 export type Seat = {
   role: string
   vote?: string // an option letter, 'abstain' or 'veto'
@@ -113,6 +123,13 @@ declare module 'claude-code' {
       tick: number
       weather: string
       view: OfficeView
+      gate: GateState
+      tab: string
+      focus: boolean
+      eventAgent: string
+      ciLabel: string
+      draftToken: string
+      room: number
       changes: Shaped<Change[]>
     }
   }

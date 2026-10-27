@@ -1,4 +1,4 @@
-import type { EngineInterface, On } from 'claude-code'
+import type { EngineInterface, On, RenderInput } from 'claude-code'
 
 import type { MemoryEntry } from '../types'
 import { log, readEvents } from './events'
@@ -91,6 +91,11 @@ export async function memoryCommand($: EngineInterface, args: string): Promise<s
 // ponytail: module flag, so a reload injects once more; a $.state flag if that ever matters
 let isInjected = false
 
+// After /clear the next conversation starts empty: memory goes with its first prompt again.
+export function resetMemory() {
+  isInjected = false
+}
+
 export function needsMemory() {
   return !isInjected
 }
@@ -107,6 +112,63 @@ export async function memoryBlock($: EngineInterface): Promise<string | undefine
   return ['Long-term memory kept by CompanyOS (facts the person or a council recorded):', ...chosen.map(m => `- ${m.text}`)].join('\n')
 }
 
+export async function memoryBody($: EngineInterface, e: RenderInput<'Pane'>) {
+  const { Box, Button, Text } = $.ui.resolve(e)
+  const [list, usage, layers, evts, now] = await Promise.all([
+    visible($),
+    $.session.usage(),
+    $.store.get(LAYERS) as Promise<Layer[] | undefined>,
+    readEvents($),
+    $.clock.now(),
+  ])
+  const pct = usage.context.percent ?? 0
+  const lastCompact = [...evts].reverse().find(x => x.kind === 'compaction')
+  const width = e.props.bodyColumns
+
+  return (
+    <Box flexDirection="column">
+      <Text bold>🐘 Elephant · {list.length} memories</Text>
+      {list.length === 0 && <Text dimColor>Nothing yet. @mem remember we use pnpm, not npm</Text>}
+      {list.map(m => (
+        <Box flexDirection="row">
+          <Button key={`pin-${m.id}`} plain onPress={() => memoryCommand($, `${m.isPinned ? 'unpin' : 'pin'} ${m.id}`).then(() => {})}>
+            {m.isPinned ? '📌' : '·'}
+          </Button>
+          <Text color={now - m.lastUsed > STALE ? 'warning' : undefined}>
+            {' '}#{m.id} {clip(m.text, width - 30)} <Text dimColor>{m.source} {day(m.ts)}{m.scope === 'global' ? ' global' : ''}</Text>{' '}
+          </Text>
+          <Button key={`forget-${m.id}`} plain onPress={() => memoryCommand($, `forget ${m.id}`).then(() => {})}>
+            ✗
+          </Button>
+        </Box>
+      ))}
+      <Text> </Text>
+      <Box flexDirection="row">
+        <Button key="mem-prune" onPress={() => memoryCommand($, 'prune').then(msg => $.ui.toast(msg))}>
+          prune
+        </Button>
+        <Button key="mem-export" onPress={() => memoryCommand($, 'export').then(text => $.ui.copy({ text }).then(() => $.ui.toast('Memories copied as Markdown.')))}>
+          export
+        </Button>
+        <Text dimColor> · given to Claude with your first prompt</Text>
+      </Box>
+      <Text> </Text>
+      <Text bold>CLAUDE.md layers</Text>
+      {(layers ?? []).map(l => (
+        <Text dimColor>
+          {clip(l.path, Math.max(12, width - 34)).padEnd(Math.max(12, width - 34))} {meter(Math.min(100, (l.tokens / Math.max(1, ...(layers ?? []).map(x => x.tokens))) * 100), 10)} {tokens(l.tokens)}
+        </Text>
+      ))}
+      <Text> </Text>
+      <Text bold>🐟 Goldfish · context window</Text>
+      <Text color={ctxColor(pct)}>
+        {meter(pct, 20)} {Math.round(pct)}%
+      </Text>
+      <Text dimColor>{lastCompact ? `Last forgot: ${lastCompact.detail}` : 'Has not forgotten anything yet.'}</Text>
+    </Box>
+  )
+}
+
 export function memory(on: On) {
   on('command.run', { command: 'mem' }, async ($, e) => ({ text: await memoryCommand($, e.args) }))
 
@@ -117,50 +179,5 @@ export function memory(on: On) {
     return text === undefined ? next(e) : next({ ...e, blocks: [...e.blocks, { name: 'companyos-memory', text }] })
   })
 
-  on('ui.render', { component: 'Pane', requestId: MEMORY }, async ($, e) => {
-    const { Box, Button, Text } = $.ui.resolve(e)
-    const [list, usage, layers, evts, now] = await Promise.all([
-      visible($),
-      $.session.usage(),
-      $.store.get(LAYERS) as Promise<Layer[] | undefined>,
-      readEvents($),
-      $.clock.now(),
-    ])
-    const pct = usage.context.percent ?? 0
-    const lastCompact = [...evts].reverse().find(x => x.kind === 'compaction')
-    const width = e.props.bodyColumns
-
-    return (
-      <Box flexDirection="column">
-        <Text bold>🐘 Elephant · {list.length} memories</Text>
-        {list.length === 0 && <Text dimColor>Nothing yet. @mem remember we use pnpm, not npm</Text>}
-        {list.map(m => (
-          <Box flexDirection="row">
-            <Button key={`pin-${m.id}`} plain onPress={() => memoryCommand($, `${m.isPinned ? 'unpin' : 'pin'} ${m.id}`).then(() => {})}>
-              {m.isPinned ? '📌' : '·'}
-            </Button>
-            <Text color={now - m.lastUsed > STALE ? 'warning' : undefined}>
-              {' '}#{m.id} {clip(m.text, width - 30)} <Text dimColor>{m.source} {day(m.ts)}{m.scope === 'global' ? ' global' : ''}</Text>{' '}
-            </Text>
-            <Button key={`forget-${m.id}`} plain onPress={() => memoryCommand($, `forget ${m.id}`).then(() => {})}>
-              ✗
-            </Button>
-          </Box>
-        ))}
-        <Text> </Text>
-        <Text bold>CLAUDE.md layers</Text>
-        {(layers ?? []).map(l => (
-          <Text dimColor>
-            {tokens(l.tokens).padStart(6)} tok {l.kind.padEnd(8)} {clip(l.path, width - 22)}
-          </Text>
-        ))}
-        <Text> </Text>
-        <Text bold>🐟 Goldfish · context window</Text>
-        <Text color={ctxColor(pct)}>
-          {meter(pct, 20)} {Math.round(pct)}%
-        </Text>
-        <Text dimColor>{lastCompact ? `Last forgot: ${lastCompact.detail}` : 'Has not forgotten anything yet.'}</Text>
-      </Box>
-    )
-  })
+  on('ui.render', { component: 'Pane', requestId: MEMORY }, ($, e) => memoryBody($, e))
 }

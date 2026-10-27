@@ -1,14 +1,50 @@
-import type { On } from 'claude-code'
+import { atom, read, update } from 'claude-code'
+import type { EngineInterface, On, RenderInput } from 'claude-code'
 
 import { statusLine } from './accounts'
 import { routeFor, sampleLimits } from './anthropic'
 import { flush, log, mark, readEvents } from './events'
 import { recordEdit } from './diff'
-import { isPlain, plain } from './mode'
+import { resetMemory } from './memory'
+import { isPlain, plain, setMode } from './mode'
 import { argOf, clip, skillOf, time, usd } from './util'
 
 export const FEED = 'companyos-feed'
 const PANE = FEED
+
+// Which agent the events tab shows; empty for all.
+const eventAgent = atom({ plugin: 'companyos', key: 'eventAgent' } as const, '')
+
+export async function eventsBody($: EngineInterface, e: RenderInput<'Pane'>) {
+  const { Box, Button, Text } = $.ui.resolve(e)
+  const [all, isPlainMode, only] = await Promise.all([readEvents($), isPlain($), read($, eventAgent)])
+  const agents = ['', ...new Set(all.map(x => x.agent))]
+  const list = only ? all.filter(x => x.agent === only) : all
+  const room = Math.max(1, (e.viewport?.rows ?? 24) - 5)
+  const width = e.props.bodyColumns
+
+  return (
+    <Box flexDirection="column">
+      <Box flexDirection="row">
+        <Button key="events-agent" hotkey="a" plain onPress={() => update($, eventAgent, a => agents[(agents.indexOf(a) + 1) % agents.length] ?? '').then(() => {})}>
+          agent: {only || 'all'}{' '}
+        </Button>
+        <Button key="events-plain" hotkey="p" variant={isPlainMode ? 'primary' : undefined} onPress={() => setMode($, 'plain')}>
+          p: plain
+        </Button>
+        <Button key="events-tech" hotkey="t" variant={isPlainMode ? undefined : 'primary'} onPress={() => setMode($, 'technical')}>
+          t: technical
+        </Button>
+      </Box>
+      {list.length === 0 && <Text dimColor>No events yet.</Text>}
+      {list.slice(-room).map(x => (
+        <Text color={x.isError ? 'error' : undefined} dimColor={x.isDone && !x.isError}>
+          {clip(isPlainMode ? `${time(x.ts).slice(0, 5)} ${plain(x)}` : `${time(x.ts)} ${x.agent.slice(0, 8).padEnd(8)} ${x.kind.padEnd(10)} ${x.detail}`, width)}
+        </Text>
+      ))}
+    </Box>
+  )
+}
 
 export function feed(on: On, capUsd: number) {
   on('command.run', { command: 'events' }, async $ => {
@@ -98,24 +134,9 @@ export function feed(on: On, capUsd: number) {
 
   on('session.end', async ($, e, next) => {
     await flush($)
+    resetMemory()
     return next(e)
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
-    const [list, isPlainMode] = await Promise.all([readEvents($), isPlain($)])
-    const room = Math.max(1, (e.viewport?.rows ?? 24) - 3)
-    const width = e.props.bodyColumns
-
-    return (
-      <Box flexDirection="column">
-        {list.length === 0 && <Text dimColor>No events yet.</Text>}
-        {list.slice(-room).map(x => (
-          <Text color={x.isError ? 'error' : undefined} dimColor={x.isDone && !x.isError}>
-            {clip(isPlainMode ? `${time(x.ts).slice(0, 5)} ${plain(x)}` : `${time(x.ts)} ${x.agent.slice(0, 8).padEnd(8)} ${x.kind.padEnd(10)} ${x.detail}`, width)}
-          </Text>
-        ))}
-      </Box>
-    )
-  })
+  on('ui.render', { component: 'Pane', requestId: PANE }, ($, e) => eventsBody($, e))
 }

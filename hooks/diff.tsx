@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, On } from 'claude-code'
+import type { EngineInterface, On, RenderInput } from 'claude-code'
 
 import type { Change, Segment } from '../types'
 import { log } from './events'
@@ -145,7 +145,7 @@ export async function recordEdit($: EngineInterface, path: string, agent: string
 }
 
 // Reverts the listed hunks of a change (all of them when none is named).
-async function revert($: EngineInterface, id: string, only?: number): Promise<string> {
+export async function revert($: EngineInterface, id: string, only?: number): Promise<string> {
   const c = (await read($, changes)).find(x => x.id === id)
   if (c === undefined || isAllReverted(c)) return 'Nothing to revert.'
   if (c.isNew) return `${c.file} was created by this change; delete it yourself if you want it gone.`
@@ -187,62 +187,57 @@ export async function diffTotals($: EngineInterface) {
   return { added, removed, files: new Set(live.map(c => c.file)).size }
 }
 
-export function diffs(on: On) {
-  on('command.run', { command: 'diff' }, async ($, e) => {
-    const [verb, id = '', nth] = e.args.trim().split(/\s+/)
-    if (verb === 'revert') return { text: await revert($, id, nth === undefined ? undefined : Number(nth) - 1) }
-    const opened = await $.ui.open({ id: DIFF, title: 'CompanyOS · changes' })
-    return { text: opened.isPlaced ? 'Diff panel opened.' : `Diff panel waits: ${opened.reason}` }
-  })
+export async function diffBody($: EngineInterface, e: RenderInput<'Pane'>) {
+  const { Box, Button, Code, Text } = $.ui.resolve(e)
+  const list = [...(await read($, changes))].reverse()
+  const t = await diffTotals($)
 
-  on('ui.render', { component: 'Pane', requestId: DIFF }, async ($, e) => {
-    const { Box, Button, Code, Text } = $.ui.resolve(e)
-    const list = [...(await read($, changes))].reverse()
-    const t = await diffTotals($)
-
-    return (
-      <Box flexDirection="column">
-        <Text bold>
-          +{t.added} −{t.removed} in {t.files} files
-        </Text>
-        {list.length === 0 && <Text dimColor>No edits yet.</Text>}
-        {list.slice(0, 10).map(c => {
-          const done = isAllReverted(c)
-          const parts = c.isRevertible ? hunks(c.file, c.segments) : []
-          return (
-            <Box flexDirection="column">
-              <Box flexDirection="row">
-                <Text dimColor={done}>
-                  {time(c.ts)} {c.agent} {clip(c.file, e.props.bodyColumns - 44)} <Text color="diffAdded">+{c.added}</Text> <Text color="diffRemoved">−{c.removed}</Text>
-                  {done ? ' reverted ' : ` ${parts.length} hunks `}
-                </Text>
-                {!done && c.isRevertible && !c.isNew && (
-                  <Button key={`revert-${c.id}`} plain onPress={() => revert($, c.id).then(msg => $.ui.toast(msg))}>
-                    revert all
-                  </Button>
-                )}
-              </Box>
-              {!done &&
-                parts.map((part, k) =>
-                  c.reverted.includes(k) ? (
-                    <Text dimColor>
-                      {'  '}hunk {k + 1} reverted
-                    </Text>
-                  ) : (
-                    <Box flexDirection="column">
-                      <Code format="diff" path={c.file} source={part.diff} />
-                      {!c.isNew && (
-                        <Button key={`revert-${c.id}-${k + 1}`} plain onPress={() => revert($, c.id, k).then(msg => $.ui.toast(msg))}>
-                          {'  '}revert hunk {k + 1}
-                        </Button>
-                      )}
-                    </Box>
-                  ),
-                )}
+  return (
+    <Box flexDirection="column">
+      <Text bold>
+        +{t.added} −{t.removed} in {t.files} files
+      </Text>
+      {list.length === 0 && <Text dimColor>No edits yet.</Text>}
+      {list.slice(0, 10).map(c => {
+        const done = isAllReverted(c)
+        const parts = c.isRevertible ? hunks(c.file, c.segments) : []
+        return (
+          <Box flexDirection="column">
+            <Box flexDirection="row">
+              <Text dimColor={done}>
+                {time(c.ts)} {c.agent} {clip(c.file, e.props.bodyColumns - 44)} <Text color="diffAdded">+{c.added}</Text> <Text color="diffRemoved">−{c.removed}</Text>
+                {done ? ' reverted ' : ` ${parts.length} hunks `}
+              </Text>
+              {!done && c.isRevertible && !c.isNew && (
+                <Button key={`revert-${c.id}`} plain onPress={() => revert($, c.id).then(msg => $.ui.toast(msg))}>
+                  revert all
+                </Button>
+              )}
             </Box>
-          )
-        })}
-      </Box>
-    )
-  })
+            {!done &&
+              parts.map((part, k) =>
+                c.reverted.includes(k) ? (
+                  <Text dimColor>
+                    {'  '}hunk {k + 1} reverted
+                  </Text>
+                ) : (
+                  <Box flexDirection="column">
+                    <Code format="diff" path={c.file} source={part.diff} />
+                    {!c.isNew && (
+                      <Button key={`revert-${c.id}-${k + 1}`} plain onPress={() => revert($, c.id, k).then(msg => $.ui.toast(msg))}>
+                        {'  '}revert hunk {k + 1}
+                      </Button>
+                    )}
+                  </Box>
+                ),
+              )}
+          </Box>
+        )
+      })}
+    </Box>
+  )
+}
+
+export function diffs(on: On) {
+  on('ui.render', { component: 'Pane', requestId: DIFF }, ($, e) => diffBody($, e))
 }

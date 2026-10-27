@@ -22,7 +22,7 @@ const RISKY: [RegExp, string][] = [
 ]
 
 // ponytail: well-known key shapes only; a real scanner (gitleaks) when one is installed
-const SECRET =
+export const SECRET =
   /(AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{36,}|sk-(ant-)?[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|AIza[0-9A-Za-z_-]{35})/
 
 // Allow, deny, or hand the call to a council of 3 that votes allow or deny.

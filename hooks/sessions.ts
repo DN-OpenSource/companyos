@@ -5,13 +5,13 @@ import { log, readEvents } from './events'
 import { plain } from './mode'
 import { clip, day } from './util'
 
-type Checkpoint = { id: string; sha: string; label: string; ts: number }
+export type Checkpoint = { id: string; sha: string; label: string; ts: number }
 
 async function rootOf($: EngineInterface) {
   return (await $.session.repo())?.root
 }
 
-async function checkpoints($: EngineInterface, root: string): Promise<Checkpoint[]> {
+export async function checkpoints($: EngineInterface, root: string): Promise<Checkpoint[]> {
   return ((await $.store.get(`checkpoints/${root}`)) as Checkpoint[] | undefined) ?? []
 }
 
@@ -30,7 +30,7 @@ async function checkpoint($: EngineInterface, label: string): Promise<string> {
   return `Checkpoint #${cp.id} (${sha.slice(0, 8)}): ${cp.label}`
 }
 
-async function restore($: EngineInterface, id: string): Promise<string> {
+export async function restore($: EngineInterface, id: string): Promise<string> {
   const root = await rootOf($)
   if (root === undefined) return 'Checkpoints need a git repository.'
   const cp = (await checkpoints($, root)).find(c => c.id === id)

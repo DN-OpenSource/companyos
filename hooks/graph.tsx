@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, On } from 'claude-code'
+import type { EngineInterface, On, RenderInput } from 'claude-code'
 
 import type { CosEvent } from '../types'
 import { readEvents } from './events'
@@ -65,6 +65,34 @@ async function mermaid($: EngineInterface, kind: Kind): Promise<string> {
   return ['graph LR', ...(lines.length ? lines : [node('nothing yet')]).map(l => '  ' + l)].join('\n')
 }
 
+export async function graphBody($: EngineInterface, e: RenderInput<'Pane'>) {
+  const { Box, Button, Markdown, Text } = $.ui.resolve(e)
+  const kind = (await read($, shown)) as Kind
+  const text = await mermaid($, kind)
+  const block = `${FENCE}mermaid\n${text}\n${FENCE}`
+
+  return (
+    <Box flexDirection="column">
+      <Box flexDirection="row">
+        {KINDS.map(k => (
+          <Button
+            key={`kind-${k}`}
+            variant={k === kind ? 'primary' : undefined}
+            onPress={() => update($, shown, () => k).then(() => {})}
+          >
+            {k}
+          </Button>
+        ))}
+        <Button key="copy" onPress={press => $.ui.copy({ text: block, surface: press.surface }).then(() => {})}>
+          copy mermaid
+        </Button>
+      </Box>
+      <Markdown text={block} />
+      <Text dimColor>{text.split('\n').length - 1} edges</Text>
+    </Box>
+  )
+}
+
 export function graph(on: On) {
   on('command.run', { command: 'graph' }, async ($, e) => {
     const asked = e.args.trim()
@@ -74,31 +102,5 @@ export function graph(on: On) {
     return { text: `${kind} graph opened. Kinds: ${KINDS.join(', ')}.` }
   })
 
-  on('ui.render', { component: 'Pane', requestId: GRAPH }, async ($, e) => {
-    const { Box, Button, Markdown, Text } = $.ui.resolve(e)
-    const kind = (await read($, shown)) as Kind
-    const text = await mermaid($, kind)
-    const block = `${FENCE}mermaid\n${text}\n${FENCE}`
-
-    return (
-      <Box flexDirection="column">
-        <Box flexDirection="row">
-          {KINDS.map(k => (
-            <Button
-              key={`kind-${k}`}
-              variant={k === kind ? 'primary' : undefined}
-              onPress={() => update($, shown, () => k).then(() => {})}
-            >
-              {k}
-            </Button>
-          ))}
-          <Button key="copy" onPress={press => $.ui.copy({ text: block, surface: press.surface }).then(() => {})}>
-            copy mermaid
-          </Button>
-        </Box>
-        <Markdown text={block} />
-        <Text dimColor>{text.split('\n').length - 1} edges</Text>
-      </Box>
-    )
-  })
+  on('ui.render', { component: 'Pane', requestId: GRAPH }, ($, e) => graphBody($, e))
 }
