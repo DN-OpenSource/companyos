@@ -8,7 +8,7 @@ Requires Claude Code 2.1.287 or later (the mods API). Built and tested on 2.1.31
 
 ## The hub
 
-`/cos` opens one pane with a tab per feature: **1** Events, **2** Telemetry, **3** Diff, **4** Office, **5** Council,
+The hub opens beside the transcript when a session starts (turn that off with `openOnStart`), and `/cos` opens one pane with a tab per feature: **1** Events, **2** Telemetry, **3** Diff, **4** Office, **5** Council,
 **6** Memory, **7** Tickets, **8** Account, **9** Checkpoints, **0** Config, **q** Quality (the done gate). `/cos <tab>`
 opens it on that tab; the digits press the tabs while the pane holds the keys. **◉ focus** folds routine reads and
 searches in the transcript to one dim line each (`/cos focus` toggles it).
@@ -84,6 +84,7 @@ reloads. Turn the mod off in `/plugin` to get out.
 
 | Field | Default | |
 | --- | --- | --- |
+| `openOnStart` | `true` | Open the hub when a session starts |
 | `protectedPaths` | `.env` | Comma-separated path fragments no agent edits without your yes; matched anywhere in the path, so `.env` also catches `.env.example` and `.envrc` |
 | `costCapUsd` | `0` | Toast once a session costs more; 0 is off |
 | `theme` | `loft` | `loft`, `tower`, `cubicles`, `garage`, `space` |

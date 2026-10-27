@@ -7,6 +7,12 @@
   },
   "types": "./types/index.d.ts",
   "userConfig": {
+    "openOnStart": {
+      "type": "boolean",
+      "title": "Open the hub when a session starts",
+      "description": "Show the CompanyOS hub beside the transcript from the start; off, /cos opens it",
+      "default": true
+    },
     "protectedPaths": {
       "type": "string",
       "title": "Protected paths",

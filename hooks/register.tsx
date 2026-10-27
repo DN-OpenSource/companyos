@@ -1,6 +1,6 @@
 import type { Register } from 'claude-code'
 
-import { accounts } from './accounts'
+import { accounts, statusLine } from './accounts'
 import { anthropic } from './anthropic'
 import { band } from './band'
 import { councils } from './council'
@@ -10,7 +10,7 @@ import { feed } from './feed'
 import { gates } from './gate'
 import { graph } from './graph'
 import { guard } from './guard'
-import { hub } from './hub'
+import { hub, openHub } from './hub'
 import { memory } from './memory'
 import { modes } from './mode'
 import { office } from './office'
@@ -114,6 +114,10 @@ export const register: Register = (on, options) => {
         required: ['key'],
       },
     })
+    // Everything shows from the start: the status line now, and the hub beside the transcript (the engine
+    // seats a pane it was not asked for once the terminal is wide enough, and holds it until then).
+    $.ui.status(`CompanyOS · ready${await statusLine($)} · /cos for the hub`)
+    if (options.openOnStart !== false && e.isInteractive) void openHub($)
     return next(e)
   })
 
